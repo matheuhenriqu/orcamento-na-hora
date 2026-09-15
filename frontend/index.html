@@ -3,146 +3,297 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>O Orçamento na Hora | Valdir Pinturas & Acabamentos</title>
-  <meta name="description" content="Orçamento imediato para pintura de parede lisa, parede com textura e teto. Atendimento automatizado com inteligência artificial para o pintor autônomo.">
-  <meta name="theme-color" content="#0f172a">
+  <title>Valdir Pintura & Acabamentos | Orçamento Oficial Automatizado</title>
+  <meta name="description" content="Terminal de orçamento oficial para serviços de pintura: parede lisa, textura e teto. Atendimento automatizado com regras auditadas e emissão imediata de proposta.">
+  <meta name="theme-color" content="#ffffff">
 
-  <!-- Google Fonts -->
+  <!-- Typography -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
 
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div class="app-layout">
-    <!-- CONTAINER PRINCIPAL DO CHAT -->
-    <main class="chat-wrapper">
-      <div class="chat-card">
-        <!-- CABEÇALHO DO ATENDENTE -->
-        <header class="chat-header">
-          <div class="profile-info">
-            <div class="avatar-container">
-              <div class="avatar">👨‍🎨</div>
-              <span class="status-indicator online" title="Atendimento Online"></span>
-            </div>
-            <div class="profile-details">
-              <h1 class="profile-name">Valdir Pintor Profissional</h1>
-              <p class="profile-status">
-                <span class="dot"></span> Online agora • <em>Orçamento instantâneo na hora</em>
-              </p>
-            </div>
-          </div>
-          <div class="header-actions">
-            <a href="admin.html" class="btn-admin-link" title="Painel Administrativo de Leads">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
-                <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
-                <path d="M9 14l2 2 4-4"></path>
-              </svg>
-              <span>Painel</span>
-            </a>
-            <button id="btn-config" class="btn-icon" title="Configurações de Conexão (Supabase API)">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="3"></circle>
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-              </svg>
-            </button>
-            <button id="btn-restart" class="btn-icon" title="Reiniciar Conversa">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path>
-                <path d="M21 3v5h-5"></path>
-                <path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path>
-                <path d="M3 21v-5h5"></path>
-              </svg>
-            </button>
-          </div>
-        </header>
-
-        <!-- BARRA INTEGRADA DE PREÇOS OFICIAIS -->
-        <div class="price-banner">
-          <div class="price-banner-inner">
-            <span class="banner-title">Tabela Oficial:</span>
-            <div class="price-badges">
-              <div class="badge-item">
-                <span class="badge-label">Parede Lisa</span>
-                <span class="badge-value">R$ 120 <small>/cômodo</small></span>
-              </div>
-              <div class="badge-item">
-                <span class="badge-label">Com Textura</span>
-                <span class="badge-value">R$ 180 <small>/cômodo</small></span>
-              </div>
-              <div class="badge-item">
-                <span class="badge-label">Teto</span>
-                <span class="badge-value">R$ 100 <small>/cômodo</small></span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- ÁREA DE MENSAGENS -->
-        <div id="messages-container" class="messages-container">
-          <!-- Mensagem inicial gerada automaticamente via JavaScript -->
-        </div>
-
-        <!-- INDICADOR DE DIGITAÇÃO / PROCESSAMENTO -->
-        <div id="typing-indicator" class="typing-container hidden">
-          <div class="avatar-small">👨‍🎨</div>
-          <div class="typing-bubble">
-            <span class="dot"></span>
-            <span class="dot"></span>
-            <span class="dot"></span>
-          </div>
-        </div>
-
-        <!-- SUGESTÕES RÁPIDAS DE INTERAÇÃO -->
-        <div class="quick-chips-wrapper">
-          <span class="chips-label">Sugestões rápidas:</span>
-          <div class="chips-list">
-            <button class="chip" data-text="Olá! Quero pintar 2 cômodos com parede lisa.">2 cômodos parede lisa</button>
-            <button class="chip" data-text="Gostaria de fazer textura em 3 cômodos.">3 cômodos de textura</button>
-            <button class="chip" data-text="Quanto custa pintar o teto de 1 cômodo?">1 cômodo de teto</button>
-            <button class="chip" data-text="Preciso pintar parede lisa de 4 cômodos e teto de 2.">Parede e teto combinados</button>
-          </div>
-        </div>
-
-        <!-- FORMULÁRIO DE ENTRADA -->
-        <form id="chat-form" class="chat-form">
-          <input
-            type="text"
-            id="user-input"
-            class="chat-input"
-            placeholder="Digite o serviço e a quantidade de cômodos..."
-            autocomplete="off"
-            required
-          />
-          <button type="submit" id="btn-send" class="btn-send" title="Enviar Mensagem">
-            <span>Enviar</span>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="22" y1="2" x2="11" y2="13"></line>
-              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+    
+    <!-- ====================================================================
+         COLUNA DA ESQUERDA: PAINEL INSTITUCIONAL & TARIFAS DO PRESTADOR
+         (40% a 45% da tela no desktop - Padrão High-Contrast Swiss Industrial)
+         ==================================================================== -->
+    <aside class="provider-panel" id="provider-panel">
+      <div class="panel-header">
+        <div class="brand-identity">
+          <div class="brand-icon" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
             </svg>
-          </button>
-        </form>
-      </div>
-    </main>
+          </div>
+          <div>
+            <h1 class="brand-name">Valdir Pintura & Acabamentos</h1>
+            <p class="brand-subtitle">Serviços Profissionais de Pintura Predial e Residencial</p>
+          </div>
+        </div>
 
-    <!-- RODAPÉ INFORMATIVO -->
-    <footer class="app-footer">
-      <p>Desenvolvido para a Atividade Prática Individual • <strong>SENAI-SP</strong> • Stack: Supabase + Groq AI (Qwen) + Cloudflare Pages</p>
-    </footer>
+        <div class="badges-row">
+          <span class="status-pill online">
+            <span class="status-pulse"></span>
+            Disponível agora
+          </span>
+          <span class="badge-senai">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+            </svg>
+            Verificado SENAI-SP
+          </span>
+        </div>
+      </div>
+
+      <div class="panel-body">
+        <!-- TABELA OFICIAL DE TARIFAS -->
+        <section class="section-block">
+          <div class="section-header">
+            <h2 class="section-title">Tabela de Tarifas Oficiais</h2>
+            <span class="section-badge">Valores Fixos</span>
+          </div>
+
+          <div class="tariff-table-wrapper">
+            <table class="tariff-table">
+              <thead>
+                <tr>
+                  <th>Tipo de Serviço</th>
+                  <th>Unidade</th>
+                  <th class="text-right">Valor Fixo</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <div class="service-name-cell">
+                      <strong>Parede Lisa</strong>
+                      <span>Emassamento e pintura látex/acrílica</span>
+                    </div>
+                  </td>
+                  <td>Cômodo</td>
+                  <td class="text-right font-mono highlight-val">R$ 120,00</td>
+                </tr>
+                <tr>
+                  <td>
+                    <div class="service-name-cell">
+                      <strong>Parede com Textura</strong>
+                      <span>Aplicação e acabamento de maior complexidade</span>
+                    </div>
+                  </td>
+                  <td>Cômodo</td>
+                  <td class="text-right font-mono highlight-val">R$ 180,00</td>
+                </tr>
+                <tr>
+                  <td>
+                    <div class="service-name-cell">
+                      <strong>Teto</strong>
+                      <span>Preparação e pintura específica para tetos</span>
+                    </div>
+                  </td>
+                  <td>Cômodo</td>
+                  <td class="text-right font-mono highlight-val">R$ 100,00</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="discount-callout">
+            <div class="discount-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <line x1="19" y1="5" x2="5" y2="19"></line>
+                <circle cx="6.5" cy="6.5" r="2.5"></circle>
+                <circle cx="17.5" cy="17.5" r="2.5"></circle>
+              </svg>
+            </div>
+            <div>
+              <strong>Desconto por Volume:</strong> 10% de desconto automático para orçamentos a partir de 5 cômodos.
+            </div>
+          </div>
+        </section>
+
+        <!-- PILARES DE GARANTIA DO SERVIÇO -->
+        <section class="section-block">
+          <h2 class="section-title">Diretrizes de Atendimento</h2>
+          <div class="guarantees-list">
+            <div class="guarantee-item">
+              <div class="guarantee-icon">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                </svg>
+              </div>
+              <div class="guarantee-text">
+                <strong>Orçamento Sem Compromisso</strong>
+                <p>Cálculo exato e instantâneo auditado pelo sistema sem custos ocultos.</p>
+              </div>
+            </div>
+
+            <div class="guarantee-item">
+              <div class="guarantee-icon">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+              </div>
+              <div class="guarantee-text">
+                <strong>Preço Fechado e Vinculante</strong>
+                <p>O valor calculado respeita a tabela oficial acordada previamente.</p>
+              </div>
+            </div>
+
+            <div class="guarantee-item">
+              <div class="guarantee-icon">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                </svg>
+              </div>
+              <div class="guarantee-text">
+                <strong>Contato Direto com o Pintor</strong>
+                <p>Seus dados são notificados imediatamente via Telegram ao profissional.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="panel-footer">
+        <a href="admin.html" class="btn-admin-portal" title="Acessar Painel de Controle">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+            <line x1="3" y1="9" x2="21" y2="9"></line>
+            <line x1="9" y1="21" x2="9" y2="9"></line>
+          </svg>
+          <span>Painel do Prestador (Admin)</span>
+        </a>
+        <div class="academic-note">
+          Projeto Individual SENAI-SP • Stack: Supabase + Groq + Cloudflare Pages
+        </div>
+      </div>
+    </aside>
+
+    <!-- ====================================================================
+         COLUNA DA DIREITA: ÁREA OPERACIONAL DO CHAT
+         (55% a 60% da tela - Integrado 100% à tela, sem emulação de celular)
+         ==================================================================== -->
+    <main class="chat-wrapper">
+      <!-- HEADER OPERACIONAL DO CHAT -->
+      <header class="chat-header">
+        <div class="terminal-info">
+          <div class="terminal-status-dot"></div>
+          <div>
+            <h2 class="terminal-title">Terminal de Orçamento</h2>
+            <p class="terminal-desc">Atendimento automatizado com Tool Calling e IA</p>
+          </div>
+        </div>
+
+        <div class="header-actions">
+          <button id="btn-restart" class="btn-action-minimal" title="Reiniciar Atendimento">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path>
+              <path d="M21 3v5h-5"></path>
+              <path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path>
+              <path d="M3 21v-5h5"></path>
+            </svg>
+            <span class="desktop-only">Reiniciar</span>
+          </button>
+
+          <button id="btn-config" class="btn-action-minimal" title="Configurar Conexão">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+            <span class="desktop-only">Endpoint</span>
+          </button>
+
+          <a href="admin.html" class="btn-action-minimal mobile-only" title="Painel Admin">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+              <line x1="3" y1="9" x2="21" y2="9"></line>
+            </svg>
+          </a>
+        </div>
+      </header>
+
+      <!-- BARRA DE PREÇOS EM PILLS COMPACTAS (VISÍVEL NO MOBILE) -->
+      <div class="mobile-tariff-strip">
+        <span class="strip-label">Preços Oficiais:</span>
+        <div class="strip-pills">
+          <span class="tariff-pill">Parede Lisa: <strong>R$ 120</strong></span>
+          <span class="tariff-pill">Textura: <strong>R$ 180</strong></span>
+          <span class="tariff-pill">Teto: <strong>R$ 100</strong></span>
+        </div>
+      </div>
+
+      <!-- ÁREA DE ROLAGEM DE MENSAGENS -->
+      <div id="messages-container" class="messages-container">
+        <!-- Renderizado dinamicamente pelo JavaScript (app.js) -->
+      </div>
+
+      <!-- INDICADOR DE PROCESSAMENTO / DIGITAÇÃO -->
+      <div id="typing-indicator" class="typing-container hidden">
+        <div class="avatar-small">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
+          </svg>
+        </div>
+        <div class="typing-bubble">
+          <span class="dot"></span>
+          <span class="dot"></span>
+          <span class="dot"></span>
+        </div>
+      </div>
+
+      <!-- BARRA DE ATALHOS / SUGESTÕES RÁPIDAS -->
+      <div class="quick-chips-wrapper">
+        <div class="chips-list">
+          <button class="chip" data-text="Olá! Quero pintar 2 cômodos com parede lisa.">
+            2 cômodos parede lisa (R$ 240)
+          </button>
+          <button class="chip" data-text="Gostaria de fazer textura em 3 cômodos.">
+            3 cômodos de textura (R$ 540)
+          </button>
+          <button class="chip" data-text="Quanto custa pintar o teto de 1 cômodo?">
+            1 cômodo de teto (R$ 100)
+          </button>
+          <button class="chip" data-text="Preciso pintar 5 cômodos de parede lisa com desconto.">
+            5 cômodos c/ 10% OFF
+          </button>
+        </div>
+      </div>
+
+      <!-- FORMULÁRIO DE ENTRADA DE MENSAGENS -->
+      <form id="chat-form" class="chat-form">
+        <input
+          type="text"
+          id="user-input"
+          class="chat-input"
+          placeholder="Ex: Gostaria de pintar 3 cômodos de parede lisa e 2 de teto..."
+          autocomplete="off"
+          required
+        />
+        <button type="submit" id="btn-send" class="btn-send" title="Enviar Mensagem">
+          <span>Enviar</span>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13"></line>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+          </svg>
+        </button>
+      </form>
+    </main>
   </div>
 
-  <!-- MODAL DE CONFIGURAÇÃO DE ENDPOINT -->
+  <!-- MODAL DE CONFIGURAÇÃO DE CONEXÃO -->
   <div id="config-modal" class="modal-backdrop hidden">
     <div class="modal-card">
       <div class="modal-header">
-        <h3>⚙️ Configuração de Conexão</h3>
-        <button id="btn-close-modal" class="btn-close">&times;</button>
+        <h3>Configuração de Conexão com Supabase</h3>
+        <button id="btn-close-modal" class="btn-close" aria-label="Fechar Modal">&times;</button>
       </div>
       <div class="modal-body">
         <p class="modal-desc">
-          Defina o endpoint das Edge Functions do Supabase (local ou produção na nuvem).
+          Configure a URL base das Edge Functions do Supabase (local ou na nuvem).
         </p>
 
         <label for="input-functions-url">URL das Edge Functions:</label>
@@ -150,7 +301,7 @@
           type="url"
           id="input-functions-url"
           class="modal-input"
-          placeholder="https://seu-projeto.supabase.co/functions/v1"
+          placeholder="https://odfvajqnaeodwzaljxzm.supabase.co/functions/v1"
         />
         <small class="helper-text">Padrão local: <code>http://127.0.0.1:54321/functions/v1</code></small>
 
@@ -162,14 +313,14 @@
           placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
         />
 
-        <div class="demo-toggle" style="margin-top: 18px;">
+        <div class="demo-toggle" style="margin-top: 16px;">
           <label class="toggle-switch">
             <input type="checkbox" id="check-demo-mode">
             <span class="slider"></span>
           </label>
           <div class="toggle-label">
             <strong>Modo Demonstração Offline (Mock)</strong>
-            <p>Permite testar os cards visuais mesmo sem chaves ou backend conectado.</p>
+            <p>Simula os cálculos e respostas da IA localmente no navegador.</p>
           </div>
         </div>
       </div>

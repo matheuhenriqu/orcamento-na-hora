@@ -1,6 +1,7 @@
 // ============================================================================
 // PROJETO: O Orçamento na Hora (SENAI-SP)
 // JAVASCRIPT DO PAINEL ADMINISTRATIVO (admin.js)
+// PADRÃO HIGH-CONTRAST MODERN SAAS / SWISS INDUSTRIAL
 // ============================================================================
 
 (function () {
@@ -13,6 +14,8 @@
   const btnRefresh = document.getElementById('btn-refresh');
   const searchInput = document.getElementById('search-input');
   const filterService = document.getElementById('filter-service');
+  const filterPillsContainer = document.getElementById('filter-pills-container');
+  const currentDateBadge = document.getElementById('current-date-badge');
 
   // KPIs
   const kpiTotalLeads = document.getElementById('kpi-total-leads');
@@ -22,11 +25,22 @@
 
   let allLeads = [];
 
+  // Exibir a data corrente no header corporativo
+  if (currentDateBadge) {
+    const hoje = new Date();
+    currentDateBadge.textContent = hoje.toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
+  }
+
   /**
    * Busca leads da Edge Function e mescla com leads em cache local
    */
   async function carregarLeads() {
-    leadsCounter.textContent = 'Carregando leads do Supabase...';
+    leadsCounter.textContent = 'Sincronizando com Supabase...';
+    btnRefresh.classList.add('loading');
     let remoteLeads = [];
 
     try {
@@ -38,6 +52,8 @@
       }
     } catch (err) {
       console.warn('Não foi possível conectar ao endpoint remoto de leads:', err);
+    } finally {
+      btnRefresh.classList.remove('loading');
     }
 
     // Mesclar com leads em cache do localStorage (para contingência e sincronia instantânea)
@@ -68,7 +84,7 @@
   }
 
   /**
-   * Atualiza os cartões de indicadores no topo da tela
+   * Atualiza os cartões de indicadores (KPIs)
    */
   function atualizarKpis(leads) {
     const total = leads.length;
@@ -77,7 +93,7 @@
     if (total === 0) {
       kpiTotalFaturamento.textContent = 'R$ 0,00';
       kpiTicketMedio.textContent = 'R$ 0,00';
-      kpiTopServico.textContent = '-';
+      kpiTopServico.textContent = 'Nenhum lead';
       return;
     }
 
@@ -110,7 +126,7 @@
           srv === 'parede_lisa'
             ? 'Parede Lisa'
             : srv === 'parede_textura'
-            ? 'Parede c/ Textura'
+            ? 'Textura'
             : srv === 'teto'
             ? 'Teto'
             : srv;
@@ -125,7 +141,7 @@
    */
   function renderizarTabela() {
     const busca = (searchInput.value || '').toLowerCase().trim();
-    const filtro = filterService.value;
+    const filtro = filterService ? filterService.value : 'todos';
 
     const leadsFiltrados = allLeads.filter((lead) => {
       const matchBusca =
@@ -139,7 +155,7 @@
       return matchBusca && matchFiltro;
     });
 
-    leadsCounter.textContent = `${leadsFiltrados.length} lead(s) exibido(s)`;
+    leadsCounter.textContent = `${leadsFiltrados.length} ${leadsFiltrados.length === 1 ? 'registro' : 'registros'}`;
     leadsTbody.innerHTML = '';
 
     if (leadsFiltrados.length === 0) {
@@ -156,14 +172,16 @@
       const dataFormatada = dataObj.toLocaleDateString('pt-BR', {
         day: '2-digit',
         month: '2-digit',
-        year: 'numeric',
+        year: '2-digit',
+      });
+      const horaFormatada = dataObj.toLocaleTimeString('pt-BR', {
         hour: '2-digit',
         minute: '2-digit',
       });
 
       const nomeServico =
         lead.tipo_servico === 'parede_textura'
-          ? 'Parede c/ Textura'
+          ? 'Textura'
           : lead.tipo_servico === 'teto'
           ? 'Teto'
           : 'Parede Lisa';
@@ -173,7 +191,7 @@
           ? 'textura'
           : lead.tipo_servico === 'teto'
           ? 'teto'
-          : '';
+          : 'parede-lisa';
 
       const valorFormatado = Number(lead.valor_calculado || 0).toLocaleString('pt-BR', {
         style: 'currency',
@@ -184,29 +202,32 @@
       const foneLimpo = (lead.telefone || '').replace(/\D/g, '');
       const foneComPais = foneLimpo.startsWith('55') ? foneLimpo : `55${foneLimpo}`;
       const msgPadrao = encodeURIComponent(
-        `Olá ${lead.nome}! Sou o Valdir Pintor. Vi que você fez um orçamento no meu site para ${nomeServico}. Como posso te ajudar?`
+        `Olá ${lead.nome}! Sou o Valdir Pintor. Vi sua cotação oficial no site para ${nomeServico} (${lead.quantidade_comodos} cômodos no valor de ${valorFormatado}). Podemos agendar a visita?`
       );
       const urlWhats = `https://wa.me/${foneComPais}?text=${msgPadrao}`;
 
       tr.innerHTML = `
-        <td style="color: var(--text-dim); font-size: 0.82rem;">${dataFormatada}</td>
-        <td class="client-name">${escapeHtml(lead.nome || 'Cliente')}</td>
+        <td class="font-mono text-muted text-xs">
+          <div>${dataFormatada}</div>
+          <div style="font-size: 0.72rem; color: #a1a1aa;">${horaFormatada}</div>
+        </td>
         <td>
-          <span style="font-family: monospace; color: #93c5fd;">${escapeHtml(lead.telefone || '')}</span>
+          <span class="client-name">${escapeHtml(lead.nome || 'Cliente')}</span>
+        </td>
+        <td>
+          <span class="font-mono text-secondary">${escapeHtml(lead.telefone || 'Não informado')}</span>
         </td>
         <td>
           <span class="badge-service ${classeBadge}">${nomeServico}</span>
         </td>
-        <td style="text-align: center; font-weight: 600;">${lead.quantidade_comodos}</td>
-        <td class="lead-price">${valorFormatado}</td>
-        <td>
-          <a href="${urlWhats}" target="_blank" rel="noopener" class="btn-whatsapp" title="Abrir conversa no WhatsApp">
-            <span>WhatsApp</span>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
-              <polyline points="15 3 21 3 21 9"></polyline>
-              <line x1="10" y1="14" x2="21" y2="3"></line>
+        <td style="text-align: center;" class="font-mono font-semibold">${lead.quantidade_comodos}</td>
+        <td style="text-align: right;" class="font-mono font-bold text-emerald">${valorFormatado}</td>
+        <td style="text-align: right;">
+          <a href="${urlWhats}" target="_blank" rel="noopener noreferrer" class="btn-whatsapp-solid" title="Iniciar atendimento via WhatsApp">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.582 2.128 2.182-.573c.978.58 1.911.928 3.145.929 3.178 0 5.767-2.587 5.768-5.766.001-3.187-2.575-5.771-5.764-5.771zm3.392 8.244c-.144.405-.837.774-1.17.824-.299.045-.677.063-1.092-.069-.252-.08-.575-.187-.988-.365-1.739-.751-2.874-2.502-2.961-2.617-.087-.116-.708-.94-.708-1.793s.448-1.273.607-1.446c.159-.173.346-.217.462-.217l.332.006c.106.005.249-.04.39.298.144.347.491 1.2.534 1.287.043.087.072.188.014.304-.058.116-.087.188-.173.289l-.26.304c-.087.086-.177.18-.076.354.101.174.449.741.964 1.201.662.591 1.221.774 1.394.86s.274.072.376-.043c.101-.116.433-.506.549-.68.116-.173.231-.145.39-.087s1.011.477 1.184.564.289.13.332.202c.043.073.043.419-.101.824z"/>
             </svg>
+            <span>Conversar no WhatsApp</span>
           </a>
         </td>
       `;
@@ -223,10 +244,29 @@
       .replace(/"/g, '&quot;');
   }
 
+  // Interatividade com os Filter Pills
+  if (filterPillsContainer) {
+    filterPillsContainer.addEventListener('click', (e) => {
+      const btn = e.target.closest('.filter-pill');
+      if (!btn) return;
+
+      filterPillsContainer.querySelectorAll('.filter-pill').forEach((p) => p.classList.remove('active'));
+      btn.classList.add('active');
+
+      const filterVal = btn.getAttribute('data-filter');
+      if (filterService) {
+        filterService.value = filterVal;
+      }
+      renderizarTabela();
+    });
+  }
+
   // Listeners
   btnRefresh.addEventListener('click', carregarLeads);
   searchInput.addEventListener('input', renderizarTabela);
-  filterService.addEventListener('change', renderizarTabela);
+  if (filterService) {
+    filterService.addEventListener('change', renderizarTabela);
+  }
 
   // Carga inicial
   carregarLeads();

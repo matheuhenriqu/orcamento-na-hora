@@ -41,12 +41,13 @@
     messagesContainer.innerHTML = '';
 
     const mensagemInicial = 
-      `Olá! Seja muito bem-vindo ao **O Orçamento na Hora** do pintor **Valdir**! 🎨\n\n` +
-      `Trabalho com preços fixos oficiais por cômodo:\n` +
+      `Olá! Seja bem-vindo ao atendimento oficial de **Valdir Pintura & Acabamentos**.\n\n` +
+      `Trabalhamos com preços oficiais fixos por cômodo:\n` +
       `• **Parede lisa:** R$ 120,00 por cômodo\n` +
       `• **Parede com textura:** R$ 180,00 por cômodo\n` +
       `• **Teto:** R$ 100,00 por cômodo\n\n` +
-      `Qual serviço você gostaria de realizar e em quantos cômodos?`;
+      `*Desconto automático de 10% aplicado para 5 ou mais cômodos.*\n\n` +
+      `Qual serviço você gostaria de orçar e em quantos cômodos?`;
 
     appendMessage('assistant', mensagemInicial);
   }
@@ -60,8 +61,11 @@
     row.className = `message-row ${isUser ? 'user-row' : 'bot-row'}`;
 
     const avatar = document.createElement('div');
-    avatar.className = 'avatar-small';
-    avatar.textContent = isUser ? '👤' : '👨‍🎨';
+    avatar.className = `avatar-small ${isUser ? 'avatar-user' : 'avatar-bot'}`;
+    avatar.setAttribute('aria-hidden', 'true');
+    avatar.innerHTML = isUser
+      ? `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>`
+      : `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>`;
 
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content';
@@ -109,7 +113,7 @@
   }
 
   /**
-   * Cria o CARD VERDE DE ORÇAMENTO (quando calcular_orcamento é executada)
+   * Cria o CARD DE ORÇAMENTO (FATURA / PROPOSTA COMERCIAL FORMAL)
    */
   function createOrcamentoCard(data) {
     const card = document.createElement('div');
@@ -125,7 +129,7 @@
       currency: 'BRL',
     });
 
-    const valorTotal = Number(data.valor_total || 0).toLocaleString('pt-BR', {
+    const valorTotal = Number(data.valor_total || data.valor_final || 0).toLocaleString('pt-BR', {
       style: 'currency',
       currency: 'BRL',
     });
@@ -136,61 +140,69 @@
     });
 
     const descontoLinha = data.desconto_aplicado > 0
-      ? `<div class="orcamento-item" style="grid-column: span 2; background: rgba(16, 185, 129, 0.15); padding: 6px 10px; border-radius: 6px; border: 1px dashed #10b981;">
-          <span style="font-size: 0.8rem; color: #6ee7b7; font-weight: 600;">🎉 Desconto por Quantidade (10%):</span>
-          <span style="font-size: 0.9rem; color: #34d399; font-weight: 700; float: right;">- ${Number(data.desconto_aplicado).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+      ? `<div class="orcamento-calc-row discount-row">
+          <span>Desconto por Volume (10%):</span>
+          <span class="font-mono text-emerald">- ${Number(data.desconto_aplicado).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
          </div>`
       : '';
 
     const taxaVisitaLinha = data.taxa_visita
-      ? `<div class="orcamento-item" style="grid-column: span 2; background: rgba(56, 189, 248, 0.1); padding: 6px 10px; border-radius: 6px; border: 1px dashed #38bdf8;">
-          <span style="font-size: 0.8rem; color: #bae6fd; font-weight: 600;">🚗 Taxa de Visita/Deslocamento:</span>
-          <span style="font-size: 0.9rem; color: #38bdf8; font-weight: 700; float: right;">+ R$ 30,00</span>
+      ? `<div class="orcamento-calc-row fee-row">
+          <span>Taxa de Deslocamento / Visita Técnica:</span>
+          <span class="font-mono">+ R$ 30,00</span>
          </div>`
       : '';
 
     card.innerHTML = `
       <div class="orcamento-header">
-        <span class="orcamento-tag">
+        <div class="orcamento-tag">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
             <polyline points="20 6 9 17 4 12"></polyline>
           </svg>
-          Orçamento Oficial Calculado
-        </span>
-        <span style="font-size: 0.76rem; color: #a7f3d0;">Tabela Valdir Pintor</span>
+          <span>Proposta Comercial Formal</span>
+        </div>
+        <span class="orcamento-protocol">Tabela Oficial Valdir</span>
       </div>
 
-      <div class="orcamento-grid">
-        <div class="orcamento-item">
-          <span class="orcamento-label">Serviço Solicitado</span>
-          <span class="orcamento-val-text">${nomeServico}</span>
+      <div class="invoice-summary-table">
+        <div class="invoice-line">
+          <span class="invoice-label">Item / Serviço</span>
+          <span class="invoice-value font-semibold">${nomeServico}</span>
         </div>
-        <div class="orcamento-item">
-          <span class="orcamento-label">Quantidade de Cômodos</span>
-          <span class="orcamento-val-text">${data.quantidade_comodos} cômodo(s)</span>
+        <div class="invoice-line">
+          <span class="invoice-label">Quantidade</span>
+          <span class="invoice-value font-mono">${data.quantidade_comodos} cômodo(s)</span>
         </div>
-        <div class="orcamento-item">
-          <span class="orcamento-label">Preço Unitário</span>
-          <span class="orcamento-val-text">${valorUnitario} / cômodo</span>
+        <div class="invoice-line">
+          <span class="invoice-label">Tarifa Unitária</span>
+          <span class="invoice-value font-mono">${valorUnitario} / cômodo</span>
         </div>
-        <div class="orcamento-item">
-          <span class="orcamento-label">Subtotal</span>
-          <span class="orcamento-val-text">${subtotalFormatado}</span>
+        <div class="invoice-line">
+          <span class="invoice-label">Subtotal Bruto</span>
+          <span class="invoice-value font-mono">${subtotalFormatado}</span>
         </div>
-        ${descontoLinha}
-        ${taxaVisitaLinha}
       </div>
+
+      ${descontoLinha || taxaVisitaLinha ? `
+        <div class="invoice-adjustments">
+          ${descontoLinha}
+          ${taxaVisitaLinha}
+        </div>
+      ` : ''}
 
       <div class="orcamento-total-box">
         <div>
-          <span class="total-title">VALOR FINAL ESTIMADO</span>
-          <p style="font-size: 0.74rem; color: #94a3b8; margin-top: 2px;">Sem taxas ocultas</p>
+          <span class="total-title">VALOR FINAL DA PROPOSTA</span>
+          <p class="total-subtitle">Preço fechado sem taxas ocultas</p>
         </div>
-        <div class="total-number">${valorTotal}</div>
+        <div class="total-number font-mono">${valorTotal}</div>
       </div>
 
       <div class="orcamento-cta-prompt">
-        <span>👉</span> <strong>Informe seu Nome e WhatsApp</strong> para o Valdir confirmar o agendamento!
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+        </svg>
+        <span>Para agendar este serviço, <strong>informe seu Nome e WhatsApp</strong> abaixo.</span>
       </div>
     `;
 
@@ -198,7 +210,7 @@
   }
 
   /**
-   * Cria o CARD AZUL DE CONFIRMAÇÃO DO LEAD (quando salvar_lead é executada)
+   * Cria o CARD DE CONFIRMAÇÃO DO LEAD (AGENDAMENTO SOLICITADO)
    */
   function createLeadCard(data) {
     const card = document.createElement('div');
@@ -237,37 +249,38 @@
             <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
             <polyline points="22 4 12 14.01 9 11.01"></polyline>
           </svg>
-          Contato Registrado com Sucesso!
+          Agendamento Solicitado
         </span>
-        <span style="font-size: 0.76rem; color: #7dd3fc;">Orçamento Salvo</span>
+        <span class="lead-subtag">Lead Registrado</span>
       </div>
 
-      <div class="lead-grid">
-        <div class="orcamento-item">
-          <span class="orcamento-label">Cliente</span>
-          <span class="orcamento-val-text">${data.nome || 'Cliente'}</span>
+      <div class="lead-details-table">
+        <div class="lead-detail-row">
+          <span class="lead-detail-label">Cliente Responsável</span>
+          <span class="lead-detail-val font-semibold">${data.nome || 'Cliente'}</span>
         </div>
-        <div class="orcamento-item">
-          <span class="orcamento-label">WhatsApp / Contato</span>
-          <span class="orcamento-val-text">${data.telefone || ''}</span>
+        <div class="lead-detail-row">
+          <span class="lead-detail-label">WhatsApp / Contato</span>
+          <span class="lead-detail-val font-mono">${data.telefone || ''}</span>
         </div>
-        <div class="orcamento-item">
-          <span class="orcamento-label">Serviço</span>
-          <span class="orcamento-val-text">${nomeServico} (${data.quantidade_comodos} cômodos)</span>
+        <div class="lead-detail-row">
+          <span class="lead-detail-label">Serviço Aprovado</span>
+          <span class="lead-detail-val">${nomeServico} (${data.quantidade_comodos} cômodos)</span>
         </div>
-        <div class="orcamento-item">
-          <span class="orcamento-label">Total Orçado</span>
-          <span class="orcamento-val-text" style="color: #38bdf8;">${valorFormatado}</span>
+        <div class="lead-detail-row">
+          <span class="lead-detail-label">Valor do Orçamento</span>
+          <span class="lead-detail-val font-mono text-emerald font-bold">${valorFormatado}</span>
         </div>
       </div>
 
       <div class="lead-status-box">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21.5 2L2 9.5l7 3 3 7z"></path>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"></line>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
         </svg>
         <div>
-          <strong>Notificação enviada ao pintor via Telegram!</strong>
-          <p style="margin-top: 2px; font-size: 0.78rem; opacity: 0.9;">O Valdir recebeu seus dados e entrará em contato em breve para confirmar os detalhes.</p>
+          <strong>Notificação enviada ao pintor Valdir via Telegram</strong>
+          <p>Os detalhes do orçamento foram encaminhados. O pintor entrará em contato via WhatsApp para combinar o início dos trabalhos.</p>
         </div>
       </div>
     `;
