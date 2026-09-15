@@ -8,11 +8,11 @@
 
 ## 👤 1. Identificação do Aluno e do Projeto
 
-* **Nome do Estudante:** `[Preencha com seu Nome Completo]`
+* **Nome do Estudante:** MATHEUS HENRIQUE DE OLIVEIRA COSTA
 * **Unidade / Turma:** SENAI-SP
 * **Nome do Projeto:** O Orçamento na Hora - Pintura Express
 * **Repositório GitHub:** [https://github.com/matheuhenriqu/orcamento-na-hora](https://github.com/matheuhenriqu/orcamento-na-hora)
-* **Link da Aplicação no Cloudflare Pages:** `[COLE_AQUI_O_LINK_DO_SEU_CLOUDFLARE_PAGES]`
+* **Link da Aplicação no Cloudflare Pages:** [https://orcamento-na-hora.pages.dev/](https://orcamento-na-hora.pages.dev/)
 * **Status do Projeto:** ✅ 100% Concluído, Testado e Aprovado
 
 ---
