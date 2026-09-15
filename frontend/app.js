@@ -282,11 +282,18 @@
   function setTyping(isTyping) {
     if (isTyping) {
       typingIndicator.classList.remove('hidden');
+      userInput.disabled = true;
+      userInput.setAttribute('data-prev-placeholder', userInput.placeholder);
+      userInput.placeholder = "Valdir está digitando...";
       btnSend.disabled = true;
+      btnSend.classList.add('loading');
       scrollToBottom();
     } else {
       typingIndicator.classList.add('hidden');
+      userInput.disabled = false;
+      userInput.placeholder = userInput.getAttribute('data-prev-placeholder') || "Digite o serviço e a quantidade de cômodos...";
       btnSend.disabled = false;
+      btnSend.classList.remove('loading');
       userInput.focus();
     }
   }

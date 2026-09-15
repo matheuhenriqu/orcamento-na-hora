@@ -1,7 +1,23 @@
-# 🎨 O Orçamento na Hora
+# 🎨 O Orçamento na Hora - Pintura Express
 
-> **Atividade Prática Individual - SENAI-SP**  
-> Aplicação inteligente de orçamento automatizado para prestador de serviços autônomo (Pintor Profissional).
+> **Atividade Prática Individual — SENAI-SP**  
+> Assistente Inteligente de Orçamento Automatizado com IA, Tool Calling e Notificação Instantânea em Tempo Real.
+
+---
+
+<div align="center">
+
+[![Cloudflare Pages](https://img.shields.io/badge/Cloudflare_Pages-Deploy_Ativo-F38020?style=for-the-badge&logo=cloudflarepages&logoColor=white)](https://orcamento-na-hora.pages.dev/)
+[![Supabase](https://img.shields.io/badge/Supabase-Edge_Functions_%26_PostgreSQL-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)](https://supabase.com)
+[![Groq Cloud](https://img.shields.io/badge/Groq_AI-Qwen_LLM_Tool_Calling-f55036?style=for-the-badge&logo=fastapi&logoColor=white)](https://groq.com)
+[![Telegram Bot](https://img.shields.io/badge/Telegram_Bot-Alertas_em_Tempo_Real-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://telegram.org)
+[![SENAI-SP](https://img.shields.io/badge/SENAI--SP-Atividade_Pr%C3%A1tica_Individual-005BAC?style=for-the-badge)](https://sp.senai.br)
+[![License MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
+
+**🌐 Produção:** [orcamento-na-hora.pages.dev](https://orcamento-na-hora.pages.dev/) &nbsp;|&nbsp; 
+**📋 Painel do Pintor:** [orcamento-na-hora.pages.dev/admin.html](https://orcamento-na-hora.pages.dev/admin.html)
+
+</div>
 
 ---
 
@@ -20,13 +36,88 @@ O pintor trabalha exclusivamente com os seguintes valores unitários fixos por c
 
 ---
 
-## 🏗️ Arquitetura e Tecnologias
+## 🏛️ Arquitetura do Sistema
 
-* **Banco de Dados & RLS:** [Supabase](https://supabase.com) (PostgreSQL com Row Level Security habilitado).
-* **Backend em Borda:** [Supabase Edge Functions](https://supabase.com/docs/guides/functions) (Deno / TypeScript).
-* **Inteligência Artificial:** [Groq Cloud](https://groq.com) utilizando modelos da família **Qwen** (`qwen-2.5-32b` ou `deepseek-r1-distill-qwen-32b`) com suporte a Tool Calling.
-* **Mensageria & Notificações:** Telegram Bot API (`sendMessage` formatado em HTML).
-* **Frontend:** HTML5 semântico, CSS3 com Glassmorphism e JavaScript puro (Vanilla JS), otimizado para deploy no [Cloudflare Pages](https://pages.cloudflare.com).
+A solução opera de maneira desacoplada e modular, garantindo baixa latência, segurança de dados e alta disponibilidade:
+
+```
+  +-------------------------------------------------------------------------+
+  |                        1. CLIENTE & NAVEGADOR                           |
+  |             Cloudflare Pages (HTML5 + Vanilla CSS + JS)                 |
+  +-----------------------------------+-------------------------------------+
+                                      |  (HTTPS / REST)
+                                      v
+  +-------------------------------------------------------------------------+
+  |                   2. SUPABASE EDGE FUNCTIONS (DENO)                     |
+  |                                                                         |
+  |   +-------------------+   Tool Calling    +--------------------------+  |
+  |   |    /v1/chat       | <===============> | Groq Cloud AI (Qwen LLM) |  |
+  |   +---------+---------+                   +--------------------------+  |
+  |             |                                                           |
+  |             +------------> /v1/calcular-orcamento (Regras & Descontos)  |
+  |             |                                                           |
+  |             +------------> /v1/salvar-lead (Persistência & Alerta)      |
+  +-------------+-----------------------------+-----------------------------+
+                |                             |
+                v                             v
+  +--------------------------+   +------------------------------------------+
+  |  3. SUPABASE POSTGRESQL  |   |        4. TELEGRAM BOT API               |
+  |  - tabela_precos         |   |  Notificação instantânea no chat         |
+  |  - orcamentos_leads      |   |  do pintor Valdir com link WhatsApp      |
+  |  - Row Level Security    |   +------------------------------------------+
+  +--------------------------+
+```
+
+### 🔄 Diagrama de Sequência e Fluxo de Dados (Mermaid)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Cliente as 👤 Cliente / Usuário
+    participant Frontend as 💻 Frontend (Cloudflare Pages)
+    participant ChatEdge as ⚡ Edge Function: chat
+    participant Groq as 🤖 Groq AI (Qwen LLM)
+    participant CalcEdge as ⚡ Edge Function: calcular-orcamento
+    participant LeadEdge as ⚡ Edge Function: salvar-lead
+    participant DB as 🗄️ Supabase DB (PostgreSQL)
+    actor Pintor as 👨‍🎨 Pintor (Telegram Bot)
+
+    Cliente->>Frontend: Digita mensagem ("Quero pintar 3 cômodos de parede textura")
+    Note over Frontend: Trava input, botão e exibe pulso de 3 pontinhos
+    Frontend->>ChatEdge: POST /chat (payload com histórico de mensagens)
+    ChatEdge->>Groq: Envia prompt de sistema + tools + histórico
+    Groq-->>ChatEdge: Tool Call: calcular_orcamento(servico, qtd)
+    ChatEdge->>CalcEdge: Invoca cálculo com regras oficiais
+    CalcEdge->>DB: Consulta tabela_precos (PostgreSQL)
+    CalcEdge-->>ChatEdge: JSON {subtotal, desconto, taxa_visita, valor_final}
+    ChatEdge->>Groq: Retorna resultado da tool executada
+    Groq-->>ChatEdge: Resposta amigável + solicitação de Nome e WhatsApp
+    ChatEdge-->>Frontend: Retorna JSON completo com orcamento_detalhado
+    Note over Frontend: Destrava input e renderiza Card Verde Oficial
+    Frontend-->>Cliente: Apresenta Proposta Comercial Detalhada
+
+    Cliente->>Frontend: Informa dados ("Meu nome é Maria Silva, zap (11) 98765-4321")
+    Frontend->>ChatEdge: POST /chat (continuação)
+    ChatEdge->>Groq: Identifica intenção de fechamento/lead
+    Groq-->>ChatEdge: Tool Call: salvar_lead(nome, telefone, orcamento)
+    ChatEdge->>LeadEdge: Invoca salvar-lead
+    LeadEdge->>DB: INSERT INTO orcamentos_leads
+    LeadEdge->>Pintor: Notificação formatada com link direto para o WhatsApp
+    LeadEdge-->>ChatEdge: Retorna confirmação {sucesso: true, id: ...}
+    ChatEdge-->>Frontend: Retorna confirmação de atendimento
+    Frontend-->>Cliente: Renderiza Card Azul de Lead Registrado com Sucesso
+```
+
+---
+
+## 🛠️ Tecnologias e Camadas
+
+* **Banco de Dados & RLS:** [Supabase](https://supabase.com) (PostgreSQL gerenciado com Row Level Security habilitado).
+* **Backend em Borda:** [Supabase Edge Functions](https://supabase.com/docs/guides/functions) (Deno / TypeScript com headers CORS unificados).
+* **Inteligência Artificial:** [Groq Cloud](https://groq.com) com família **Qwen** de alta performance (`qwen-2.5-32b` / `deepseek-r1-distill-qwen-32b`) com Tool Calling nativo.
+* **Mensageria & Notificações:** Telegram Bot API (`sendMessage` formatado em HTML com link direto `wa.me`).
+* **Frontend:** HTML5 semântico, CSS3 com design moderno claro (Clean White & Slate), responsividade `100dvh` para teclados mobile e JavaScript puro (Vanilla JS).
+* **Hospedagem & CDN:** [Cloudflare Pages](https://pages.cloudflare.com) com deploy contínuo global.
 
 ---
 
@@ -47,12 +138,16 @@ orcamento-na-hora/
 │       └── chat/
 │           └── index.ts             # Orquestrador Groq (Qwen) + Tool Calling
 ├── frontend/
-│   ├── index.html                   # Interface do chat
-│   ├── style.css                    # Estilos modernos e cards visuais
-│   ├── app.js                       # Lógica do chat e renderização dinâmica
+│   ├── index.html                   # Interface do chat principal
+│   ├── admin.html                   # Painel administrativo do pintor
+│   ├── style.css                    # Folha de estilos modernos (Light Mode & 100dvh)
+│   ├── app.js                       # Lógica do chat e renderização de cards
+│   ├── admin.js                     # Listagem e métricas de leads em tempo real
 │   └── config.js                    # Configuração de endpoints (local/cloud)
+├── RELATORIO_ENTREGA.md             # Documento oficial de entrega SENAI-SP
+├── test_scenarios.js                # Suite de testes automatizados de regressão
 ├── .env.example                     # Modelo de variáveis de ambiente
-└── README.md                        # Guia de configuração e deploy
+└── README.md                        # Guia de configuração, arquitetura e deploy
 ```
 
 ---
@@ -120,35 +215,24 @@ supabase functions deploy chat --no-verify-jwt
 
 ### Passo 4: Como Rodar e Testar Localmente
 
-Você pode testar a aplicação localmente de duas maneiras:
+Você pode testar a aplicação localmente:
 
-#### Opção A: Teste Completo com Supabase CLI Local
 ```bash
-# Iniciar ambiente Supabase local
-supabase start
-
-# Executar as funções localmente
-supabase functions serve --env-file .env
-```
-
-#### Opção B: Servindo o Frontend Localmente
-Você pode utilizar qualquer servidor estático para rodar o frontend:
-```bash
-# Usando npx serve
-npx serve frontend -p 3000
-
-# Ou usando Python
-cd frontend && python -m http.server 3000
+# Iniciar o servidor web local na porta 3000
+node server.js
 ```
 Abra seu navegador em `http://localhost:3000`.
 
-> 💡 **Dica Rápida:** No frontend, clique no ícone de engrenagem ⚙️ (canto superior direito) para apontar a URL do seu Supabase (`https://<projeto>.supabase.co/functions/v1`) ou para ativar o **Modo Demonstração Offline (Mock)** e validar o fluxo visual imediatamente!
+Para rodar a suite de testes automatizados:
+```bash
+node test_scenarios.js
+```
 
 ---
 
 ### Passo 5: Deploy do Frontend no Cloudflare Pages
 
-O frontend foi desenvolvido em Vanilla JS sem dependências de compilação, perfeito para o Cloudflare Pages:
+O frontend foi desenvolvido em Vanilla JS sem dependências de compilação, ideal para o Cloudflare Pages:
 
 1. Acesse o [Cloudflare Dashboard](https://dash.cloudflare.com/) e navegue até **Workers & Pages** > **Create application** > **Pages**.
 2. Conecte o repositório Git do projeto.
@@ -157,9 +241,9 @@ O frontend foi desenvolvido em Vanilla JS sem dependências de compilação, per
    * **Build command:** *(deixar em branco)*
    * **Build output directory:** `frontend`
 4. Clique em **Save and Deploy**.
-5. No arquivo `frontend/config.js`, certifique-se de configurar a constante `SUPABASE_FUNCTIONS_URL` com o endereço das suas funções implantadas na nuvem:
+5. No arquivo `frontend/config.js`, configure a constante `SUPABASE_FUNCTIONS_URL`:
    ```javascript
-   SUPABASE_FUNCTIONS_URL: "https://<SEU_PROJETO_ID>.supabase.co/functions/v1"
+   SUPABASE_FUNCTIONS_URL: "https://odfvajqnaeodwzaljxzm.supabase.co/functions/v1"
    ```
 
 ---
@@ -192,7 +276,11 @@ Experimente simular uma conversa real no chat para verificar todo o fluxo:
 
 ---
 
-## 👨‍💻 Autor & Créditos
-* **Instituição:** SENAI-SP
-* **Projeto:** Atividade Prática Individual - O Orçamento na Hora
-* **Stack:** Supabase, Groq AI (Qwen), Telegram API, Cloudflare Pages
+## 👨‍💻 Autor & Identificação Acadêmica
+
+* **Aluno:** **MATHEUS HENRIQUE DE OLIVEIRA COSTA**
+* **Instituição:** **SENAI-SP**
+* **Projeto:** Atividade Prática Individual — *O Orçamento na Hora*
+* **Link em Produção:** [https://orcamento-na-hora.pages.dev/](https://orcamento-na-hora.pages.dev/)
+* **Painel Administrativo:** [https://orcamento-na-hora.pages.dev/admin.html](https://orcamento-na-hora.pages.dev/admin.html)
+* **Repositório GitHub:** [https://github.com/matheuhenriqu/orcamento-na-hora](https://github.com/matheuhenriqu/orcamento-na-hora)
