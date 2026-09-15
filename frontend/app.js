@@ -130,6 +130,25 @@
       currency: 'BRL',
     });
 
+    const subtotalFormatado = Number(data.subtotal || data.valor_total || 0).toLocaleString('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+    });
+
+    const descontoLinha = data.desconto_aplicado > 0
+      ? `<div class="orcamento-item" style="grid-column: span 2; background: rgba(16, 185, 129, 0.15); padding: 6px 10px; border-radius: 6px; border: 1px dashed #10b981;">
+          <span style="font-size: 0.8rem; color: #6ee7b7; font-weight: 600;">🎉 Desconto por Quantidade (10%):</span>
+          <span style="font-size: 0.9rem; color: #34d399; font-weight: 700; float: right;">- ${Number(data.desconto_aplicado).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+         </div>`
+      : '';
+
+    const taxaVisitaLinha = data.taxa_visita
+      ? `<div class="orcamento-item" style="grid-column: span 2; background: rgba(56, 189, 248, 0.1); padding: 6px 10px; border-radius: 6px; border: 1px dashed #38bdf8;">
+          <span style="font-size: 0.8rem; color: #bae6fd; font-weight: 600;">🚗 Taxa de Visita/Deslocamento:</span>
+          <span style="font-size: 0.9rem; color: #38bdf8; font-weight: 700; float: right;">+ R$ 30,00</span>
+         </div>`
+      : '';
+
     card.innerHTML = `
       <div class="orcamento-header">
         <span class="orcamento-tag">
@@ -155,14 +174,16 @@
           <span class="orcamento-val-text">${valorUnitario} / cômodo</span>
         </div>
         <div class="orcamento-item">
-          <span class="orcamento-label">Mão de Obra</span>
-          <span class="orcamento-val-text">Profissional Especializado</span>
+          <span class="orcamento-label">Subtotal</span>
+          <span class="orcamento-val-text">${subtotalFormatado}</span>
         </div>
+        ${descontoLinha}
+        ${taxaVisitaLinha}
       </div>
 
       <div class="orcamento-total-box">
         <div>
-          <span class="total-title">VALOR TOTAL ESTIMADO</span>
+          <span class="total-title">VALOR FINAL ESTIMADO</span>
           <p style="font-size: 0.74rem; color: #94a3b8; margin-top: 2px;">Sem taxas ocultas</p>
         </div>
         <div class="total-number">${valorTotal}</div>
@@ -182,6 +203,24 @@
   function createLeadCard(data) {
     const card = document.createElement('div');
     card.className = 'lead-card';
+
+    // Sincronizar lead com cache local para o painel administrativo
+    try {
+      const savedLeads = JSON.parse(localStorage.getItem('orcamento_local_leads') || '[]');
+      const novoLead = {
+        id: data.lead_id || crypto.randomUUID(),
+        nome: data.nome || 'Cliente',
+        telefone: data.telefone || '',
+        tipo_servico: data.tipo_servico || 'parede_lisa',
+        quantidade_comodos: Number(data.quantidade_comodos || 1),
+        valor_calculado: Number(data.valor_calculado || 0),
+        created_at: new Date().toISOString(),
+      };
+      savedLeads.unshift(novoLead);
+      localStorage.setItem('orcamento_local_leads', JSON.stringify(savedLeads));
+    } catch (e) {
+      console.warn('Erro ao cachear lead localmente:', e);
+    }
 
     const valorFormatado = Number(data.valor_calculado || 0).toLocaleString('pt-BR', {
       style: 'currency',

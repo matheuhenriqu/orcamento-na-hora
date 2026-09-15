@@ -100,9 +100,51 @@ Deno.serve(async (req: Request) => {
   const corsPreflight = handleCors(req);
   if (corsPreflight) return corsPreflight;
 
-  // 2. Aceita apenas POST
+  // 2. Se for GET, retorna a lista de todos os leads para o Painel Administrativo
+  if (req.method === 'GET') {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+    const supabaseServiceKey =
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+
+    if (!supabaseUrl || !supabaseServiceKey) {
+      return jsonResponse({ success: true, leads: [] });
+    }
+
+    try {
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      const { data, error } = await supabase
+        .from('orcamentos_leads')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.warn('[salvar-lead] Aviso ao listar leads (RLS restrito):', error.message);
+        return jsonResponse({
+          success: true,
+          total: 0,
+          leads: [],
+          aviso: error.message,
+        });
+      }
+
+      return jsonResponse({
+        success: true,
+        total: (data || []).length,
+        leads: data || [],
+      });
+    } catch (e) {
+      return jsonResponse({
+        success: true,
+        total: 0,
+        leads: [],
+        aviso: (e as Error).message,
+      });
+    }
+  }
+
+  // 3. Aceita apenas POST ou GET
   if (req.method !== 'POST') {
-    return errorResponse('Método não permitido. Utilize POST.', 405);
+    return errorResponse('Método não permitido. Utilize POST ou GET.', 405);
   }
 
   try {

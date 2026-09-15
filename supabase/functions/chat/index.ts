@@ -46,11 +46,15 @@ TABELA DE PREÇOS OFICIAIS DO PINTOR (INVIOLÁVEL):
 - Parede com textura: R$ 180,00 por cômodo (maior complexidade, exige técnica e mais tempo).
 - Teto: R$ 100,00 por cômodo.
 
+REGRAS ESPECIAIS E DESCONTOS (CRITÉRIOS DESEJÁVEIS):
+- Desconto por quantidade: Para 5 ou mais cômodos, é aplicado automaticamente 10% de desconto no valor total pela ferramenta "calcular_orcamento"!
+- Taxa de visita/deslocamento: Se o cliente mencionar que o imóvel é distante, sítio, chácara, fora da cidade ou zona rural, passe "taxa_visita: true" para a ferramenta "calcular_orcamento" (taxa de R$ 30,00).
+
 DIRETRIZES DE COMPORTAMENTO OBRIGATÓRIAS:
 1. NUNCA calcule valores de cabeça. NUNCA invente preços, quantidades de cômodos ou dados de clientes.
 2. Se o cliente disser apenas "quero um orçamento" ou não tiver informado o serviço E a quantidade de cômodos, pergunte com gentileza qual o serviço (parede lisa, parede com textura ou teto) e quantos cômodos serão pintados.
 3. Assim que o cliente tiver fornecido o serviço e a quantidade de cômodos, você DEVE OBRIGATORIAMENTE chamar a ferramenta "calcular_orcamento". Não faça contas manuais no texto.
-4. Ao receber o retorno da ferramenta "calcular_orcamento", apresente o valor total detalhado com entusiasmo e solicite o Nome e o WhatsApp/Telefone do cliente para que o Valdir possa registrar o pedido e entrar em contato para agendar ou tirar dúvidas.
+4. Ao receber o retorno da ferramenta "calcular_orcamento", apresente o valor total detalhado com entusiasmo (mencionando o desconto se houver) e solicite o Nome e o WhatsApp/Telefone do cliente para que o Valdir possa registrar o pedido e entrar em contato para agendar ou tirar dúvidas.
 5. Assim que o cliente fornecer seu nome e telefone/WhatsApp, você DEVE OBRIGATORIAMENTE chamar a ferramenta "salvar_lead" passando o nome, telefone, o tipo de serviço, a quantidade de cômodos e o valor_calculado daquele orçamento.
 6. Após a ferramenta "salvar_lead" retornar sucesso, confirme ao cliente que o contato foi gravado e que o pintor Valdir entrará em contato pelo WhatsApp em instantes!`;
 
@@ -77,6 +81,11 @@ const TOOLS = [
             type: 'integer',
             minimum: 1,
             description: 'Quantidade de cômodos para o serviço de pintura (número inteiro positivo).',
+          },
+          taxa_visita: {
+            type: 'boolean',
+            description:
+              'True se o cliente informar que o imóvel é distante, fora da cidade, sítio ou zona rural (taxa de deslocamento de R$ 30,00). Padrão false.',
           },
         },
         required: ['tipo_servico', 'quantidade_comodos'],
@@ -125,6 +134,7 @@ const TOOLS = [
 async function executarCalcularOrcamento(args: {
   tipo_servico: string;
   quantidade_comodos: number;
+  taxa_visita?: boolean;
 }) {
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -148,7 +158,7 @@ async function executarCalcularOrcamento(args: {
     }
   }
 
-  // 2. Cálculo direto baseado nos preços oficiais invioláveis
+  // 2. Cálculo direto baseado nos preços oficiais invioláveis com regras extras
   const tabela: Record<string, { preco: number; nome: string }> = {
     parede_lisa: { preco: 120.0, nome: 'Parede Lisa' },
     parede_textura: { preco: 180.0, nome: 'Parede com Textura' },
@@ -157,7 +167,12 @@ async function executarCalcularOrcamento(args: {
 
   const item = tabela[args.tipo_servico] || tabela['parede_lisa'];
   const comodos = Math.max(1, Math.round(Number(args.quantidade_comodos) || 1));
-  const total = Number((item.preco * comodos).toFixed(2));
+  const subtotal = Number((item.preco * comodos).toFixed(2));
+  const temDesconto = comodos >= 5;
+  const descontoAplicado = temDesconto ? Number((subtotal * 0.10).toFixed(2)) : 0;
+  const temTaxaVisita = Boolean(args.taxa_visita);
+  const valorTaxaVisita = temTaxaVisita ? 30.0 : 0.0;
+  const total = Number((subtotal - descontoAplicado + valorTaxaVisita).toFixed(2));
 
   return {
     success: true,
@@ -165,6 +180,12 @@ async function executarCalcularOrcamento(args: {
     nome_servico: item.nome,
     quantidade_comodos: comodos,
     preco_unitario: item.preco,
+    subtotal: subtotal,
+    desconto_aplicado: descontoAplicado,
+    desconto_percentual: temDesconto ? 10 : 0,
+    taxa_visita: temTaxaVisita,
+    valor_taxa_visita: valorTaxaVisita,
+    valor_final: total,
     valor_total: total,
     valor_total_formatado: `R$ ${total.toFixed(2).replace('.', ',')}`,
   };
@@ -366,6 +387,7 @@ Deno.serve(async (req: Request) => {
           executionResult = await executarCalcularOrcamento({
             tipo_servico: String(fnArgs.tipo_servico || 'parede_lisa'),
             quantidade_comodos: Number(fnArgs.quantidade_comodos) || 1,
+            taxa_visita: Boolean(fnArgs.taxa_visita),
           });
 
           toolActionMeta = {

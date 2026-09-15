@@ -11,6 +11,7 @@ import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts';
 interface CalcularOrcamentoPayload {
   tipo_servico: string;
   quantidade_comodos: number;
+  taxa_visita?: boolean;
 }
 
 /**
@@ -46,7 +47,7 @@ Deno.serve(async (req: Request) => {
 
   try {
     const body: Partial<CalcularOrcamentoPayload> = await req.json().catch(() => ({}));
-    const { tipo_servico, quantidade_comodos } = body;
+    const { tipo_servico, quantidade_comodos, taxa_visita } = body;
 
     // 3. Validação dos parâmetros
     if (!tipo_servico || typeof tipo_servico !== 'string') {
@@ -125,8 +126,20 @@ Deno.serve(async (req: Request) => {
           : 'Teto';
     }
 
-    // 6. Cálculo inviolável
-    const valorTotal = Number((precoUnitario * comodos).toFixed(2));
+    // 6. Cálculo oficial com regras extras (Desconto por quantidade e Taxa de visita)
+    const subtotal = Number((precoUnitario * comodos).toFixed(2));
+
+    // Regra Extra 1: Desconto de 10% para 5 ou mais cômodos
+    const temDesconto = comodos >= 5;
+    const descontoPercentual = temDesconto ? 10 : 0;
+    const descontoAplicado = temDesconto ? Number((subtotal * 0.10).toFixed(2)) : 0;
+
+    // Regra Extra 2: Taxa de visita de R$ 30,00 caso informada
+    const temTaxaVisita = Boolean(taxa_visita);
+    const valorTaxaVisita = temTaxaVisita ? 30.0 : 0.0;
+
+    // Valor final com desconto e taxa de visita
+    const valorFinal = Number((subtotal - descontoAplicado + valorTaxaVisita).toFixed(2));
 
     const resultado = {
       success: true,
@@ -134,8 +147,15 @@ Deno.serve(async (req: Request) => {
       nome_servico: nomeAmigavel,
       quantidade_comodos: comodos,
       preco_unitario: precoUnitario,
-      valor_total: valorTotal,
-      valor_total_formatado: `R$ ${valorTotal.toFixed(2).replace('.', ',')}`,
+      subtotal: subtotal,
+      desconto_aplicado: descontoAplicado,
+      desconto_percentual: descontoPercentual,
+      taxa_visita: temTaxaVisita,
+      valor_taxa_visita: valorTaxaVisita,
+      valor_final: valorFinal,
+      // Retrocompatibilidade
+      valor_total: valorFinal,
+      valor_total_formatado: `R$ ${valorFinal.toFixed(2).replace('.', ',')}`,
       observacao,
     };
 
