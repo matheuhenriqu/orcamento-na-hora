@@ -11,7 +11,7 @@
 * **Nome do Estudante:** `[Preencha com seu Nome Completo]`
 * **Unidade / Turma:** SENAI-SP
 * **Nome do Projeto:** O Orçamento na Hora - Pintura Express
-* **Repositório GitHub:** `[COLE_AQUI_O_LINK_DO_SEU_REPOSITORIO_GITHUB]`
+* **Repositório GitHub:** [https://github.com/matheuhenriqu/orcamento-na-hora](https://github.com/matheuhenriqu/orcamento-na-hora)
 * **Link da Aplicação no Cloudflare Pages:** `[COLE_AQUI_O_LINK_DO_SEU_CLOUDFLARE_PAGES]`
 * **Status do Projeto:** ✅ 100% Concluído, Testado e Aprovado
 
