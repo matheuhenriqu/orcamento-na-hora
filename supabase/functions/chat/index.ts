@@ -247,9 +247,9 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Seleção de modelo da família Qwen com suporte a Tool Calling
-    // Modelos sugeridos: 'qwen-2.5-32b', 'deepseek-r1-distill-qwen-32b'
-    const groqModel = Deno.env.get('GROQ_MODEL') || 'qwen-2.5-32b';
+    // Seleção de modelo da família Qwen com suporte a Tool Calling / Reasoning
+    // 'deepseek-r1-distill-qwen-32b' ou 'qwen-2.5-coder-32b' ou 'llama-3.3-70b-versatile'
+    const groqModel = Deno.env.get('GROQ_MODEL') || 'deepseek-r1-distill-qwen-32b';
 
     // Montar histórico de mensagens para a API da Groq
     const groqMessages: ChatMessage[] = [
@@ -263,35 +263,72 @@ Deno.serve(async (req: Request) => {
       })),
     ];
 
-    console.log(`[chat] Chamando Groq (${groqModel}) com ${groqMessages.length} mensagens...`);
-
-    // 1ª Chamada à Groq API
-    const groqPayload = {
-      model: groqModel,
-      messages: groqMessages,
-      tools: TOOLS,
-      tool_choice: 'auto',
-      temperature: 0.2, // Baixa temperatura para precisão estrita nas regras de negócio
-      max_tokens: 1024,
-    };
-
-    const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${groqApiKey}`,
-      },
-      body: JSON.stringify(groqPayload),
-    });
-
-    if (!groqResponse.ok) {
-      const errText = await groqResponse.text();
-      console.error('[chat] Erro na resposta da Groq API:', groqResponse.status, errText);
-      return errorResponse(`Erro na API Groq (${groqResponse.status})`, 502, errText);
+    // Consultar dinamicamente os modelos disponíveis na conta Groq
+    let availableModelIds: string[] = [];
+    try {
+      const modelsResp = await fetch('https://api.groq.com/openai/v1/models', {
+        headers: { Authorization: `Bearer ${groqApiKey}` },
+      });
+      if (modelsResp.ok) {
+        const modelsData = await modelsResp.json();
+        availableModelIds = (modelsData.data || []).map((m: { id: string }) => m.id);
+        console.log('[chat] Modelos disponíveis na Groq:', availableModelIds);
+      }
+    } catch (e) {
+      console.warn('[chat] Falha ao consultar lista de modelos da Groq:', e);
     }
 
-    const completionData = await groqResponse.json();
-    const choice = completionData.choices?.[0];
+    // Priorizar modelos da família Qwen ou modelos rápidos com Tool Calling
+    const qwenModel = availableModelIds.find((id) => id.toLowerCase().includes('qwen'));
+    const llamaModel = availableModelIds.find(
+      (id) => id.includes('llama-3.3') || id.includes('llama-3.1-70b') || id.includes('llama-3.1-8b')
+    );
+    const fallbackModel = availableModelIds[0] || 'llama-3.1-8b-instant';
+
+    const preferredModel = Deno.env.get('GROQ_MODEL') || qwenModel || llamaModel || fallbackModel;
+    const modelsToTry = [...new Set([preferredModel, qwenModel, llamaModel, fallbackModel].filter(Boolean) as string[])];
+
+    let completionData: Record<string, unknown> | null = null;
+    let selectedModel = modelsToTry[0];
+    const allErrors: Array<{ model: string; status: number; error: string }> = [];
+
+    for (const model of modelsToTry) {
+      console.log(`[chat] Tentando Groq com modelo: ${model}...`);
+      const groqPayload = {
+        model,
+        messages: groqMessages,
+        tools: TOOLS,
+        tool_choice: 'auto',
+        temperature: 0.2,
+        max_tokens: 1024,
+      };
+
+      const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${groqApiKey}`,
+        },
+        body: JSON.stringify(groqPayload),
+      });
+
+      if (groqResponse.ok) {
+        completionData = await groqResponse.json();
+        selectedModel = model;
+        console.log(`[chat] Sucesso com o modelo: ${model}`);
+        break;
+      } else {
+        const errTxt = await groqResponse.text();
+        allErrors.push({ model, status: groqResponse.status, error: errTxt });
+        console.warn(`[chat] Modelo ${model} falhou (${groqResponse.status}): ${errTxt}`);
+      }
+    }
+
+    if (!completionData) {
+      return errorResponse('Erro ao conectar com modelos da Groq API.', 502, allErrors);
+    }
+
+    const choice = (completionData.choices as Array<{ message: ChatMessage }>)?.[0];
     const assistantMsg = choice?.message;
 
     if (!assistantMsg) {
@@ -369,7 +406,7 @@ Deno.serve(async (req: Request) => {
           Authorization: `Bearer ${groqApiKey}`,
         },
         body: JSON.stringify({
-          model: groqModel,
+          model: selectedModel,
           messages: conversationWithTools,
           temperature: 0.3,
           max_tokens: 1024,
