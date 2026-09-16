@@ -116,6 +116,16 @@ Deno.serve(async (req: Request) => {
     return errorResponse('Método não permitido. Utilize POST para o webhook ou GET para diagnóstico.', 405);
   }
 
+  // Validação opcional de segurança recomendada pelo Telegram: Secret Token
+  const webhookSecret = Deno.env.get('TELEGRAM_WEBHOOK_SECRET');
+  if (webhookSecret) {
+    const receivedSecret = req.headers.get('x-telegram-bot-api-secret-token');
+    if (receivedSecret !== webhookSecret) {
+      console.warn('[telegram-webhook] Tentativa de acesso com secret token inválido ou ausente');
+      return errorResponse('Acesso não autorizado ao webhook', 401);
+    }
+  }
+
   try {
     const update = await req.json().catch(() => ({}));
     const message = update.message || update.edited_message;
@@ -130,24 +140,33 @@ Deno.serve(async (req: Request) => {
     const firstName = message.from?.first_name || message.chat.first_name || 'Profissional';
     const text = (message.text || '').trim();
 
-    console.log(`[telegram-webhook] Mensagem recebida de @${username || chatId}: "${text}"`);
+    // Verificação de autorização do chat
+    const authorizedChatId = Deno.env.get('TELEGRAM_CHAT_ID');
+    const adminChatsStr = Deno.env.get('TELEGRAM_ADMIN_CHATS') || '';
+    const adminChats = adminChatsStr.split(',').map((s) => s.trim()).filter(Boolean);
+    const isAuthorizedChat =
+      (authorizedChatId && String(chatId) === String(authorizedChatId)) ||
+      adminChats.includes(String(chatId));
 
-    // 3.1 Comando: /start (Inscrição do prestador)
+    console.log(`[telegram-webhook] Mensagem recebida de @${username || chatId}: "${text}" (Autorizado: ${isAuthorizedChat})`);
+
+    // 3.1 Comando: /start (Inscrição segura do prestador)
     if (text.startsWith('/start')) {
-      const { error: dbError } = await supabase
-        .from('telegram_inscritos')
-        .upsert({
-          chat_id: chatId,
-          username: username || null,
-          first_name: firstName,
-          created_at: new Date().toISOString(),
-        }, { onConflict: 'chat_id' });
+      if (isAuthorizedChat || !authorizedChatId) {
+        const { error: dbError } = await supabase
+          .from('telegram_inscritos')
+          .upsert({
+            chat_id: chatId,
+            username: username || null,
+            first_name: firstName,
+            created_at: new Date().toISOString(),
+          }, { onConflict: 'chat_id' });
 
-      if (dbError) {
-        console.error('[telegram-webhook] Erro ao salvar inscrito:', dbError);
-      }
+        if (dbError) {
+          console.error('[telegram-webhook] Erro ao salvar inscrito:', dbError);
+        }
 
-      const resposta = `🎨 <b>Olá, ${firstName}! Conexão com o Bot Oficial Estabelecida!</b>
+        const resposta = `🎨 <b>Olá, ${firstName}! Conexão com o Bot Oficial Estabelecida!</b>
 
 Você acaba de se inscrever no sistema oficial de <b>Valdir Pintura & Acabamentos</b>.
 
@@ -162,12 +181,31 @@ Sempre que um cliente solicitar um orçamento ou registrar contato no site, voc�
 
 <i>Aguardando novos orçamentos no site... Boas vendas! 🚀</i>`;
 
-      await responderTelegram(botToken, chatId, resposta);
-      return jsonResponse({ ok: true, command: 'start', chat_id: chatId });
+        await responderTelegram(botToken, chatId, resposta);
+        return jsonResponse({ ok: true, command: 'start', chat_id: chatId, authorized: true });
+      } else {
+        const msgAcessoNegado = `🎨 <b>Olá, ${firstName}! Bem-vindo ao canal oficial de Valdir Pintura & Acabamentos.</b>
+
+Este bot é exclusivo para notificações e relatórios operacionais do prestador.
+Para simular ou solicitar um orçamento oficial gratuito em instantes, utilize nosso terminal web:
+🌐 <b>https://orcamento-na-hora.pages.dev</b>`;
+
+        await responderTelegram(botToken, chatId, msgAcessoNegado);
+        return jsonResponse({ ok: true, command: 'start', chat_id: chatId, authorized: false });
+      }
     }
 
-    // 3.2 Comando: /orcamentos (Ver últimos leads)
+    // 3.2 Comando: /orcamentos (Ver últimos leads - RESTRITO A ADMINISTRADORES)
     if (text.startsWith('/orcamentos') || text.startsWith('/leads')) {
+      if (!isAuthorizedChat && authorizedChatId) {
+        await responderTelegram(
+          botToken,
+          chatId,
+          '🔒 <b>Acesso Restrito:</b> Os orçamentos e dados de contato de clientes são confidenciais e restritos ao prestador de serviços autorizado.'
+        );
+        return jsonResponse({ ok: true, command: 'orcamentos', authorized: false });
+      }
+
       const { data: leads, error } = await supabase
         .from('orcamentos_leads')
         .select('*')
@@ -213,8 +251,17 @@ Sempre que um cliente solicitar um orçamento ou registrar contato no site, voc�
       return jsonResponse({ ok: true, command: 'orcamentos', total: leads.length });
     }
 
-    // 3.3 Comando: /status (Métricas Rápidas)
+    // 3.3 Comando: /status (Métricas Rápidas - RESTRITO A ADMINISTRADORES)
     if (text.startsWith('/status') || text.startsWith('/metricas')) {
+      if (!isAuthorizedChat && authorizedChatId) {
+        await responderTelegram(
+          botToken,
+          chatId,
+          '🔒 <b>Acesso Restrito:</b> O faturamento e métricas de desempenho são confidenciais.'
+        );
+        return jsonResponse({ ok: true, command: 'status', authorized: false });
+      }
+
       const { data: leads } = await supabase.from('orcamentos_leads').select('valor_calculado');
       const total = (leads || []).length;
       const faturamento = (leads || []).reduce((acc, cur) => acc + (Number(cur.valor_calculado) || 0), 0);

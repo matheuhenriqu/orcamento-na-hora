@@ -149,15 +149,25 @@
   }
 
   /**
+   * Codifica caracteres especiais para entidades HTML seguras, prevenindo XSS.
+   */
+  function escapeHtml(str) {
+    if (!str && str !== 0) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  /**
    * Converte marcações simples de Markdown com escape seguro de HTML
    */
   function formatMarkdown(str) {
     if (!str) return '';
-    // Escapa caracteres HTML para evitar renderização de tags sintéticas indesejadas
-    const safe = str
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
+    // Escapa caracteres HTML para evitar injeção de scripts e tags indesejadas
+    const safe = escapeHtml(str);
 
     return safe
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
@@ -221,7 +231,7 @@
       <div class="invoice-summary-table">
         <div class="invoice-line">
           <span class="invoice-label">Item / Serviço</span>
-          <span class="invoice-value font-semibold">${nomeServico}</span>
+          <span class="invoice-value font-semibold">${escapeHtml(nomeServico)}</span>
         </div>
         <div class="invoice-line">
           <span class="invoice-label">Quantidade</span>
@@ -319,19 +329,19 @@
       <div class="lead-details-table">
         <div class="lead-detail-row">
           <span class="lead-detail-label">Cliente Responsável</span>
-          <span class="lead-detail-val font-semibold">${nome}</span>
+          <span class="lead-detail-val font-semibold">${escapeHtml(nome)}</span>
         </div>
         <div class="lead-detail-row">
           <span class="lead-detail-label">WhatsApp / Contato</span>
-          <span class="lead-detail-val font-mono">${telefone || 'Informado no atendimento'}</span>
+          <span class="lead-detail-val font-mono">${escapeHtml(telefone || 'Informado no atendimento')}</span>
         </div>
         <div class="lead-detail-row">
           <span class="lead-detail-label">Serviço Aprovado</span>
-          <span class="lead-detail-val">${nomeServico} (${comodos} cômodo${comodos > 1 ? 's' : ''})</span>
+          <span class="lead-detail-val">${escapeHtml(nomeServico)} (${comodos} cômodo${comodos > 1 ? 's' : ''})</span>
         </div>
         <div class="lead-detail-row">
           <span class="lead-detail-label">Valor do Orçamento</span>
-          <span class="lead-detail-val font-mono text-emerald font-bold">${valorFormatado}</span>
+          <span class="lead-detail-val font-mono text-emerald font-bold">${escapeHtml(valorFormatado)}</span>
         </div>
       </div>
 

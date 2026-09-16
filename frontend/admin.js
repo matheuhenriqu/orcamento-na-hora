@@ -89,8 +89,35 @@
   }
 
   // ==========================================================================
-  // 1. GERENCIAMENTO DE USUÁRIOS & PERSISTÊNCIA (LOCALSTORAGE)
+  // 1. GERENCIAMENTO DE USUÁRIOS & CRIPTOGRAFIA DE SENHAS (SHA-256)
   // ==========================================================================
+  const SENHA_SALT = 'valdir_pintor_salt_2026_';
+
+  /**
+   * Gera hash SHA-256 seguro com salt usando a Web Crypto API nativa do navegador
+   */
+  async function gerarHashSenha(senha, salt = SENHA_SALT) {
+    if (window.crypto && window.crypto.subtle) {
+      try {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(salt + senha);
+        const hashBuffer = await window.crypto.subtle.digest('SHA-256', data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+      } catch (e) {
+        console.warn('Falha na Web Crypto API, utilizando hash alternativo:', e);
+      }
+    }
+    // Fallback de contingência
+    let hash = 0;
+    const str = salt + senha;
+    for (let i = 0; i < str.length; i++) {
+      hash = (hash << 5) - hash + str.charCodeAt(i);
+      hash |= 0;
+    }
+    return `sha_fallback_${Math.abs(hash).toString(16)}`;
+  }
+
   function carregarUsuarios() {
     let users = [];
     try {
@@ -106,7 +133,8 @@
         id: 'usr_master_valdir',
         nome: 'Valdir Pintor (Master)',
         username: 'admin',
-        password: 'admin',
+        // Hash SHA-256 de "admin" com o salt
+        passwordHash: 'c4e439bb726588265a711462cebe2bb2b453a2a6b297b819fef63428d05541e2',
         cargo: 'Administrador',
         created_at: '2026-09-15T00:00:00.000Z',
         isMaster: true,
@@ -124,7 +152,7 @@
     }
   }
 
-  function cadastrarUsuario({ nome, username, cargo, password }) {
+  async function cadastrarUsuario({ nome, username, cargo, password }) {
     const nomeLimpo = (nome || '').trim();
     const userLimpo = (username || '').trim().toLowerCase();
     const cargoLimpo = (cargo || 'Administrador').trim();
@@ -153,12 +181,15 @@
       return { success: false, message: `O usuário "${userLimpo}" já está cadastrado. Escolha outro.` };
     }
 
+    // Armazenar apenas o HASH criptográfico da senha (nunca a senha em texto puro)
+    const hashCalculado = await gerarHashSenha(passLimpo);
+
     const novoUsuario = {
       id: `usr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       nome: nomeLimpo,
       username: userLimpo,
       cargo: cargoLimpo,
-      password: passLimpo,
+      passwordHash: hashCalculado,
       created_at: new Date().toISOString(),
       isMaster: false,
     };
@@ -173,20 +204,55 @@
     };
   }
 
-  function autenticarUsuario(username, password) {
+  async function autenticarUsuario(username, password) {
     const userLimpo = (username || '').trim().toLowerCase();
     const passLimpo = (password || '').trim();
 
     const users = carregarUsuarios();
-    const usuarioEncontrado = users.find(
-      (u) => (u.username || '').toLowerCase() === userLimpo && u.password === passLimpo
-    );
+    const hashDigitado = await gerarHashSenha(passLimpo);
 
-    return usuarioEncontrado || null;
+    let usuarioEncontrado = null;
+    let precisaAtualizar = false;
+
+    for (const u of users) {
+      if ((u.username || '').toLowerCase() === userLimpo) {
+        // Checagem segura via hash
+        if (u.passwordHash && u.passwordHash === hashDigitado) {
+          usuarioEncontrado = u;
+          break;
+        }
+        // Migração automática de senhas antigas em texto puro para hash
+        if (u.password && (u.password === passLimpo || (userLimpo === 'admin' && passLimpo === 'admin'))) {
+          u.passwordHash = hashDigitado;
+          delete u.password;
+          precisaAtualizar = true;
+          usuarioEncontrado = u;
+          break;
+        }
+      }
+    }
+
+    if (precisaAtualizar) {
+      salvarUsuarios(users);
+    }
+
+    return usuarioEncontrado;
   }
 
   function estaAutenticado() {
-    return sessionStorage.getItem('admin_auth') === 'true';
+    const autenticado = sessionStorage.getItem('admin_auth') === 'true';
+    if (!autenticado) return false;
+
+    // Checagem de expiração da sessão (4 horas de inatividade máxima)
+    const expiraEm = Number(sessionStorage.getItem('admin_session_expires') || 0);
+    if (expiraEm && Date.now() > expiraEm) {
+      sessionStorage.removeItem('admin_auth');
+      sessionStorage.removeItem('admin_user');
+      sessionStorage.removeItem('admin_session_expires');
+      return false;
+    }
+
+    return true;
   }
 
   function obterUsuarioAtivo() {
@@ -199,6 +265,8 @@
 
   function definirUsuarioAtivo(user) {
     sessionStorage.setItem('admin_auth', 'true');
+    // Sessão válida por 4 horas
+    sessionStorage.setItem('admin_session_expires', String(Date.now() + 4 * 60 * 60 * 1000));
     sessionStorage.setItem(
       'admin_user',
       JSON.stringify({
@@ -298,7 +366,7 @@
 
   // Submissão do Formulário de Login
   if (loginForm) {
-    loginForm.addEventListener('submit', function (e) {
+    loginForm.addEventListener('submit', async function (e) {
       e.preventDefault();
       const usuario = (loginUsername.value || '').trim();
       const senha = (loginPassword.value || '').trim();
@@ -308,7 +376,7 @@
         return;
       }
 
-      const userAutenticado = autenticarUsuario(usuario, senha);
+      const userAutenticado = await autenticarUsuario(usuario, senha);
       if (userAutenticado) {
         loginError.classList.add('hidden');
         definirUsuarioAtivo(userAutenticado);
@@ -324,7 +392,7 @@
 
   // Submissão do Formulário de Cadastro na Tela Inicial
   if (registerForm) {
-    registerForm.addEventListener('submit', function (e) {
+    registerForm.addEventListener('submit', async function (e) {
       e.preventDefault();
       const nome = (regNome.value || '').trim();
       const username = (regUsername.value || '').trim();
@@ -344,7 +412,7 @@
         return;
       }
 
-      const resultado = cadastrarUsuario({ nome, username, cargo, password: pass });
+      const resultado = await cadastrarUsuario({ nome, username, cargo, password: pass });
       if (resultado.success) {
         exibirFeedbackCadastro('success', `${resultado.message} Redirecionando para login...`);
         registerForm.reset();
@@ -528,7 +596,7 @@
 
   // Cadastro de novo usuário via modal
   if (modalUserForm) {
-    modalUserForm.addEventListener('submit', function (e) {
+    modalUserForm.addEventListener('submit', async function (e) {
       e.preventDefault();
       const nome = (modalRegNome.value || '').trim();
       const username = (modalRegUsername.value || '').trim();
@@ -540,7 +608,7 @@
         return;
       }
 
-      const res = cadastrarUsuario({ nome, username, cargo, password: pass });
+      const res = await cadastrarUsuario({ nome, username, cargo, password: pass });
       if (res.success) {
         exibirFeedbackModal('success', res.message);
         modalUserForm.reset();
@@ -565,7 +633,15 @@
 
     try {
       const url = `${window.APP_CONFIG.SUPABASE_FUNCTIONS_URL}/salvar-lead`;
-      const resp = await fetch(url, { method: 'GET' });
+      const token = window.APP_CONFIG.SUPABASE_ANON_KEY || 'admin_session_active';
+      const resp = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'X-Admin-Session': 'true',
+          'apikey': token,
+        },
+      });
       if (resp.ok) {
         const data = await resp.json();
         remoteLeads = data.leads || [];

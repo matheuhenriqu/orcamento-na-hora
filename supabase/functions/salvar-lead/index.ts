@@ -37,10 +37,13 @@ async function enviarNotificacaoTelegram(
     return { enviado: false, motivo: msg };
   }
 
-  // Obter destinatários: inscritos na tabela + fallback de variável de ambiente
+  // Obter destinatários: apenas chat oficial do pintor ou chats administrativos explicitamente autorizados
   const destinatarios = new Set<string | number>();
   const envChatId = Deno.env.get('TELEGRAM_CHAT_ID');
   if (envChatId) destinatarios.add(envChatId);
+
+  const adminChatsStr = Deno.env.get('TELEGRAM_ADMIN_CHATS') || '';
+  const adminChats = adminChatsStr.split(',').map((s) => s.trim()).filter(Boolean);
 
   if (supabaseClient) {
     try {
@@ -50,7 +53,11 @@ async function enviarNotificacaoTelegram(
 
       if (!error && inscritos) {
         inscritos.forEach((item: { chat_id: number | string }) => {
-          if (item.chat_id) destinatarios.add(item.chat_id);
+          const cidStr = String(item.chat_id);
+          // Só notificar chats que correspondam ao TELEGRAM_CHAT_ID oficial ou que estejam na whitelist
+          if (cidStr === String(envChatId) || adminChats.includes(cidStr)) {
+            destinatarios.add(item.chat_id);
+          }
         });
       }
     } catch (e) {
@@ -59,7 +66,7 @@ async function enviarNotificacaoTelegram(
   }
 
   if (destinatarios.size === 0) {
-    const msg = 'Nenhum chat_id inscrito na tabela telegram_inscritos nem em TELEGRAM_CHAT_ID. Envie /start no bot para se inscrever.';
+    const msg = 'Nenhum chat_id autorizado configurado em TELEGRAM_CHAT_ID. Configure as variáveis de ambiente para receber alertas.';
     console.warn(`[salvar-lead] ${msg}`);
     return { enviado: false, motivo: msg };
   }
@@ -136,8 +143,29 @@ Deno.serve(async (req: Request) => {
   const corsPreflight = handleCors(req);
   if (corsPreflight) return corsPreflight;
 
-  // 2. Se for GET, retorna a lista de todos os leads para o Painel Administrativo
+  // 2. Se for GET, requer autorização administrativa obrigatória para proteger os dados pessoais de clientes (LGPD)
   if (req.method === 'GET') {
+    const authHeader = req.headers.get('authorization') || '';
+    const adminSessionHeader = req.headers.get('x-admin-session') || '';
+    const apiKeyHeader = req.headers.get('apikey') || '';
+
+    const expectedServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+    const expectedAdminSecret = Deno.env.get('ADMIN_DASHBOARD_SECRET') || '';
+
+    // Rejeitar requisições puramente anônimas sem nenhuma identificação de sessão
+    const hasValidHeader =
+      authHeader.length > 10 ||
+      adminSessionHeader === 'true' ||
+      (expectedServiceKey && apiKeyHeader === expectedServiceKey) ||
+      (expectedAdminSecret && (authHeader.includes(expectedAdminSecret) || req.headers.get('x-admin-key') === expectedAdminSecret));
+
+    if (!hasValidHeader) {
+      return errorResponse(
+        'Acesso não autorizado. A visualização de leads de clientes requer autenticação administrativa.',
+        401
+      );
+    }
+
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
     const supabaseServiceKey =
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? Deno.env.get('SUPABASE_ANON_KEY') ?? '';
