@@ -321,7 +321,7 @@ Deno.serve(async (req: Request) => {
         tools: TOOLS,
         tool_choice: 'auto',
         temperature: 0.2,
-        max_tokens: 1024,
+        max_tokens: 600,
       };
 
       const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -431,7 +431,7 @@ Deno.serve(async (req: Request) => {
           model: selectedModel,
           messages: conversationWithTools,
           temperature: 0.3,
-          max_tokens: 1024,
+          max_tokens: 600,
         }),
       });
 

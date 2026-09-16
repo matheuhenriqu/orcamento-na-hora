@@ -127,7 +127,8 @@ sequenceDiagram
 orcamento-na-hora/
 ├── supabase/
 │   ├── migrations/
-│   │   └── init.sql                 # Script DDL, tabelas, RLS e dados iniciais
+│   │   ├── init.sql                 # Script DDL completo, tabelas, RLS e dados iniciais
+│   │   └── 20260915220000_telegram_inscritos.sql # Tabela para webhook bidirecional
 │   └── functions/
 │       ├── _shared/
 │       │   └── cors.ts              # Configuração de CORS compartilhada
@@ -135,14 +136,16 @@ orcamento-na-hora/
 │       │   └── index.ts             # Função Deno de cálculo e validação
 │       ├── salvar-lead/
 │       │   └── index.ts             # Gravação de lead e disparo no Telegram
+│       ├── telegram-webhook/
+│       │   └── index.ts             # Webhook bidirecional do Telegram Bot
 │       └── chat/
 │           └── index.ts             # Orquestrador Groq (Qwen) + Tool Calling
 ├── frontend/
-│   ├── index.html                   # Interface do chat principal
-│   ├── admin.html                   # Painel administrativo do pintor
-│   ├── style.css                    # Folha de estilos modernos (Light Mode & 100dvh)
+│   ├── index.html                   # Interface do chat principal (Split 2 colunas)
+│   ├── admin.html                   # Painel administrativo protegido por senha
+│   ├── style.css                    # Design System High-Contrast Swiss Industrial
 │   ├── app.js                       # Lógica do chat e renderização de cards
-│   ├── admin.js                     # Listagem e métricas de leads em tempo real
+│   ├── admin.js                     # Listagem, métricas e autenticação admin
 │   └── config.js                    # Configuração de endpoints (local/cloud)
 ├── RELATORIO_ENTREGA.md             # Documento oficial de entrega SENAI-SP
 ├── test_scenarios.js                # Suite de testes automatizados de regressão
@@ -166,17 +169,23 @@ orcamento-na-hora/
 
 ---
 
-### Passo 2: Criando o Bot do Telegram e Obtendo o Chat ID
+### Passo 2: Bot Oficial do Telegram e Webhook Bidirecional
 
-1. No Telegram, procure pelo usuário oficial **`@BotFather`** e envie `/newbot`.
-2. Siga as instruções:
-   * Escolha um nome para o bot (ex: `Valdir Pinturas Notifica`).
-   * Escolha um username que termine em `bot` (ex: `valdir_pintor_orcamento_bot`).
-3. O BotFather fornecerá o token de acesso (exemplo: `7123456789:AAEj4m-xxx-yyy`). Guarde-o como `TELEGRAM_BOT_TOKEN`.
-4. Abra uma conversa com o seu novo bot recém-criado e envie a mensagem `/start`.
-5. Para descobrir o seu ID de usuário do Telegram:
-   * Inicie uma conversa com o bot **`@userinfobot`** no Telegram. Ele responderá imediatamente com o seu `Id` numérico (ex: `123456789`). Guarde-o como `TELEGRAM_CHAT_ID`.
-   * *(Alternativa)*: Acesse `https://api.telegram.org/bot<SEU_TOKEN>/getUpdates` no navegador e localize o campo `"id"` dentro do objeto `"chat"`.
+O bot oficial do pintor está configurado e integrado:
+* **Bot Oficial:** [`@valdir_pintor_orcamento_bot`](https://t.me/valdir_pintor_orcamento_bot)
+* **Webhook Endpoint:** `https://odfvajqnaeodwzaljxzm.supabase.co/functions/v1/telegram-webhook`
+* **Tabela de Inscritos:** `telegram_inscritos` (armazena chats autorizados a receber alertas em tempo real)
+
+**Como Conectar seu Telegram ao Sistema:**
+1. Abra o Telegram e acesse [t.me/valdir_pintor_orcamento_bot](https://t.me/valdir_pintor_orcamento_bot).
+2. Envie o comando `/start`. O webhook registrará automaticamente seu `chat_id` no banco Supabase.
+3. Você receberá uma mensagem de confirmação imediata e passará a receber notificações em tempo real sempre que um novo orçamento for solicitado no site!
+
+**Comandos Disponíveis no Telegram:**
+* `/start` — Inscrever o chat para receber alertas instantâneos de novos leads
+* `/orcamentos` — Consultar os últimos 5 orçamentos registrados com link direto para o WhatsApp do cliente
+* `/status` — Exibir o total de leads capturados, faturamento potencial e ticket médio
+* `/sair` — Cancelar o recebimento de notificações neste dispositivo
 
 ---
 

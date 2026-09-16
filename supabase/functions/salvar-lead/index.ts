@@ -17,21 +17,49 @@ interface SalvarLeadPayload {
 }
 
 /**
- * Envia notificação assíncrona ao Telegram do pintor.
+ * Envia notificação assíncrona a todos os inscritos no Telegram.
  * Trata erros internamente para nunca interromper a gravação do lead no banco.
  */
-async function enviarNotificacaoTelegram(lead: {
-  nome: string;
-  telefone: string;
-  tipo_servico: string;
-  quantidade_comodos: number;
-  valor_calculado: number;
-}): Promise<{ enviado: boolean; motivo?: string }> {
+async function enviarNotificacaoTelegram(
+  lead: {
+    nome: string;
+    telefone: string;
+    tipo_servico: string;
+    quantidade_comodos: number;
+    valor_calculado: number;
+  },
+  supabaseClient?: any
+): Promise<{ enviado: boolean; motivo?: string; total_destinatarios?: number }> {
   const botToken = Deno.env.get('TELEGRAM_BOT_TOKEN');
-  const chatId = Deno.env.get('TELEGRAM_CHAT_ID');
+  if (!botToken) {
+    const msg = 'TELEGRAM_BOT_TOKEN não configurado nas variáveis de ambiente. Notificação ignorada.';
+    console.warn(`[salvar-lead] ${msg}`);
+    return { enviado: false, motivo: msg };
+  }
 
-  if (!botToken || !chatId) {
-    const msg = 'Variáveis TELEGRAM_BOT_TOKEN ou TELEGRAM_CHAT_ID não configuradas. Notificação ignorada.';
+  // Obter destinatários: inscritos na tabela + fallback de variável de ambiente
+  const destinatarios = new Set<string | number>();
+  const envChatId = Deno.env.get('TELEGRAM_CHAT_ID');
+  if (envChatId) destinatarios.add(envChatId);
+
+  if (supabaseClient) {
+    try {
+      const { data: inscritos, error } = await supabaseClient
+        .from('telegram_inscritos')
+        .select('chat_id');
+
+      if (!error && inscritos) {
+        inscritos.forEach((item: { chat_id: number | string }) => {
+          if (item.chat_id) destinatarios.add(item.chat_id);
+        });
+      }
+    } catch (e) {
+      console.warn('[salvar-lead] Não foi possível consultar telegram_inscritos:', e);
+    }
+  }
+
+  if (destinatarios.size === 0) {
+    const msg = 'Nenhum chat_id inscrito na tabela telegram_inscritos nem em TELEGRAM_CHAT_ID. Envie /start no bot para se inscrever.';
     console.warn(`[salvar-lead] ${msg}`);
     return { enviado: false, motivo: msg };
   }
@@ -54,45 +82,53 @@ async function enviarNotificacaoTelegram(lead: {
     timeZone: 'America/Sao_Paulo',
   });
 
-  const mensagemHtml = `🎨 <b>NOVO ORÇAMENTO REGISTRADO!</b> 🎨
+  const foneLimpo = (lead.telefone || '').replace(/\D/g, '');
+  const foneComPais = foneLimpo.startsWith('55') ? foneLimpo : `55${foneLimpo}`;
+  const waLink = `https://wa.me/${foneComPais}`;
+
+  const mensagemHtml = `🎨 <b>NOVO ORÇAMENTO REGISTRADO NO SITE!</b> 🎨
 
 👤 <b>Cliente:</b> ${lead.nome}
-📱 <b>WhatsApp / Telefone:</b> ${lead.telefone}
+📱 <b>WhatsApp:</b> <a href="${waLink}">${lead.telefone}</a>
 🛠️ <b>Serviço:</b> ${nomeServicoAmigavel}
-🚪 <b>Quantidade de Cômodos:</b> ${lead.quantidade_comodos}
-💰 <b>Valor Total Estimado:</b> ${valorFormatado}
+🚪 <b>Quantidade:</b> ${lead.quantidade_comodos} cômodo(s)
+💰 <b>Valor Estimado:</b> <b>${valorFormatado}</b>
 ⏰ <b>Horário:</b> ${agora}
 
-👉 <i>Acesse o painel ou chame o cliente no WhatsApp para fechar o serviço!</i>`;
+👉 <a href="${waLink}">Clique aqui para chamar o cliente no WhatsApp</a> e fechar o serviço!`;
 
-  try {
-    const telegramUrl = `https://api.telegram.org/bot${botToken}/sendMessage`;
-    const response = await fetch(telegramUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: mensagemHtml,
-        parse_mode: 'HTML',
-      }),
-    });
+  let enviadosComSucesso = 0;
+  for (const chatId of destinatarios) {
+    try {
+      const telegramUrl = `https://api.telegram.org/bot${botToken}/sendMessage`;
+      const response = await fetch(telegramUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: mensagemHtml,
+          parse_mode: 'HTML',
+          disable_web_page_preview: true,
+        }),
+      });
 
-    const resultado = await response.json().catch(() => ({}));
-
-    if (!response.ok || !resultado.ok) {
-      console.error('[salvar-lead] Erro na resposta da Telegram API:', resultado);
-      return { enviado: false, motivo: resultado.description || 'Erro na Telegram API' };
+      const resultado = await response.json().catch(() => ({}));
+      if (response.ok && resultado.ok) {
+        enviadosComSucesso++;
+      } else {
+        console.warn(`[salvar-lead] Falha ao enviar para chat_id ${chatId}:`, resultado.description);
+      }
+    } catch (err: unknown) {
+      console.error(`[salvar-lead] Erro de rede ao notificar chat ${chatId}:`, (err as Error)?.message);
     }
-
-    console.log('[salvar-lead] Notificação enviada com sucesso para o Telegram!');
-    return { enviado: true };
-  } catch (err: unknown) {
-    const error = err as Error;
-    console.error('[salvar-lead] Falha ao comunicar com Telegram Bot API:', error?.message);
-    return { enviado: false, motivo: error?.message };
   }
+
+  console.log(`[salvar-lead] Notificação enviada para ${enviadosComSucesso} de ${destinatarios.size} destinatário(s).`);
+  return {
+    enviado: enviadosComSucesso > 0,
+    total_destinatarios: enviadosComSucesso,
+    motivo: enviadosComSucesso > 0 ? undefined : 'Falha no envio para todos os destinatários',
+  };
 }
 
 Deno.serve(async (req: Request) => {
@@ -190,10 +226,11 @@ Deno.serve(async (req: Request) => {
     let leadId = crypto.randomUUID();
     let gravadoNoBanco = false;
 
+    let supabaseClient: any = null;
     if (supabaseUrl && supabaseServiceKey) {
-      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      supabaseClient = createClient(supabaseUrl, supabaseServiceKey);
 
-      const { data, error } = await supabase
+      const { data, error } = await supabaseClient
         .from('orcamentos_leads')
         .insert([leadSanitizado])
         .select('id, created_at')
@@ -212,7 +249,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // 5. Disparo da Notificação no Telegram (Não bloqueante para o sucesso do cliente)
-    const statusTelegram = await enviarNotificacaoTelegram(leadSanitizado);
+    const statusTelegram = await enviarNotificacaoTelegram(leadSanitizado, supabaseClient);
 
     // 6. Retorno de sucesso ao chamador
     return jsonResponse({

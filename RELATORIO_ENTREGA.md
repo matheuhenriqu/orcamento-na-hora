@@ -91,7 +91,7 @@ flowchart TD
 
 | Desafio Extra | Descrição | Status |
 | :--- | :--- | :---: |
-| **1. Notificação Telegram** | Disparo automático e assíncrono para o Telegram do pintor via Bot API (`sendMessage`) contendo dados formatados em HTML assim que o contato é salvo. | **Aprovado (100%)** |
+| **1. Notificação Telegram & Webhook Bidirecional** | Bot oficial `@valdir_pintor_orcamento_bot` com Webhook bidirecional (`telegram-webhook`), comandos `/start`, `/orcamentos`, `/status` e tabela `telegram_inscritos` no Supabase para autoinscrição de profissionais e alertas em tempo real. | **Aprovado (100%)** |
 | **2. Desconto por Quantidade** | Aplicação automática de 10% de desconto no valor final para 5 ou mais cômodos. | **Aprovado (100%)** |
 | **3. Taxa de Visita / Deslocamento** | Parâmetro opcional `taxa_visita: boolean` (R$ 30,00) acionado pela IA quando o cliente indica imóvel afastado. | **Aprovado (100%)** |
 | **4. Painel Administrativo** | Dashboard exclusivo (`admin.html`) com KPIs de Faturamento, Ticket Médio, Total de Leads, filtros de pesquisa e botão de WhatsApp direto. | **Aprovado (100%)** |
