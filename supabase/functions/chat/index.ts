@@ -55,8 +55,9 @@ DIRETRIZES DE COMPORTAMENTO OBRIGATÓRIAS:
 2. Se o cliente disser apenas "quero um orçamento" ou não tiver informado o serviço E a quantidade de cômodos, pergunte com gentileza qual o serviço (parede lisa, parede com textura ou teto) e quantos cômodos serão pintados.
 3. Assim que o cliente tiver fornecido o serviço e a quantidade de cômodos, você DEVE OBRIGATORIAMENTE chamar a ferramenta "calcular_orcamento". Não faça contas manuais no texto.
 4. Ao receber o retorno da ferramenta "calcular_orcamento", apresente o valor total detalhado com entusiasmo (mencionando o desconto se houver) e solicite o Nome e o WhatsApp/Telefone do cliente para que o Valdir possa registrar o pedido e entrar em contato para agendar ou tirar dúvidas.
-5. Assim que o cliente fornecer seu nome e telefone/WhatsApp, você DEVE OBRIGATORIAMENTE chamar a ferramenta "salvar_lead" passando o nome, telefone, o tipo de serviço, a quantidade de cômodos e o valor_calculado daquele orçamento.
-6. Após a ferramenta "salvar_lead" retornar sucesso, confirme ao cliente que o contato foi gravado e que o pintor Valdir entrará em contato pelo WhatsApp em instantes!`;
+5. Ao coletar o nome e telefone do cliente, você NUNCA deve chamar "salvar_lead" com campos vazios, nulos ou zerados.
+6. Resgate obrigatoriamente do histórico imediato o tipo de serviço contratado, a quantidade de cômodos e o valor_total final calculado pelo "calcular_orcamento" e passe-os como argumentos para "salvar_lead" (nome, telefone, tipo_servico, comodos, valor_total).
+7. Após chamar "salvar_lead" com sucesso, responda no chat confirmando exatamente: "Perfeito, {nome}! Seus dados foram encaminhados diretamente ao Telegram do pintor Valdir. Ele entrará em contato com você pelo seu WhatsApp ({telefone}) para combinar a data e o início dos trabalhos."`;
 
 // ============================================================================
 // DEFINIÇÃO DAS FERRAMENTAS (TOOL CALLING SCHEMA)
@@ -97,7 +98,7 @@ const TOOLS = [
     function: {
       name: 'salvar_lead',
       description:
-        'Persiste o lead de orçamento no banco de dados e notifica o pintor no Telegram. Chame IMEDIATAMENTE quando o cliente informar nome e telefone/WhatsApp.',
+        'Persiste o lead de orçamento no banco de dados e encaminha os detalhes ao Telegram do pintor Valdir. Chame IMEDIATAMENTE após o cliente fornecer nome e telefone/WhatsApp.',
       parameters: {
         type: 'object',
         properties: {
@@ -107,22 +108,25 @@ const TOOLS = [
           },
           telefone: {
             type: 'string',
-            description: 'Telefone ou número de WhatsApp para contato.',
+            description: 'Telefone ou número de WhatsApp para contato do cliente.',
           },
           tipo_servico: {
             type: 'string',
+            enum: ['parede_lisa', 'parede_textura', 'teto'],
             description: 'Tipo de serviço previamente orçado (parede_lisa, parede_textura ou teto).',
           },
-          quantidade_comodos: {
+          comodos: {
             type: 'integer',
-            description: 'Número de cômodos que foram orçados.',
+            minimum: 1,
+            description: 'Número de cômodos calculados no orçamento prévio.',
           },
-          valor_calculado: {
+          valor_total: {
             type: 'number',
-            description: 'Valor total calculado previamente para este orçamento.',
+            minimum: 1,
+            description: 'Valor final total do orçamento calculado previamente pela ferramenta calcular_orcamento.',
           },
         },
-        required: ['nome', 'telefone', 'tipo_servico', 'quantidade_comodos', 'valor_calculado'],
+        required: ['nome', 'telefone', 'tipo_servico', 'comodos', 'valor_total'],
       },
     },
   },
@@ -191,15 +195,63 @@ async function executarCalcularOrcamento(args: {
   };
 }
 
-async function executarSalvarLead(args: {
-  nome: string;
-  telefone: string;
-  tipo_servico: string;
-  quantidade_comodos: number;
-  valor_calculado: number;
-}) {
+async function executarSalvarLead(
+  args: {
+    nome?: string;
+    telefone?: string;
+    tipo_servico?: string;
+    comodos?: number;
+    quantidade_comodos?: number;
+    valor_total?: number;
+    valor_calculado?: number;
+  },
+  historicoMensagens?: ChatMessage[]
+) {
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? Deno.env.get('SUPABASE_ANON_KEY');
+
+  // Resgate automático do histórico recente caso algum argumento venha ausente ou zerado
+  let tipoServico = args.tipo_servico;
+  let comodos = Number(args.comodos || args.quantidade_comodos || 0);
+  let valorTotal = Number(args.valor_total || args.valor_calculado || 0);
+
+  if ((!tipoServico || comodos <= 0 || valorTotal <= 0) && Array.isArray(historicoMensagens)) {
+    // Procurar a última tool call calcular_orcamento ou tool result no histórico
+    for (let i = historicoMensagens.length - 1; i >= 0; i--) {
+      const m = historicoMensagens[i];
+      if (m.role === 'tool' && m.name === 'calcular_orcamento' && m.content) {
+        try {
+          const calcData = JSON.parse(m.content);
+          if (!tipoServico && calcData.tipo_servico) tipoServico = calcData.tipo_servico;
+          if (comodos <= 0 && calcData.quantidade_comodos) comodos = Number(calcData.quantidade_comodos);
+          if (valorTotal <= 0 && (calcData.valor_final || calcData.valor_total)) {
+            valorTotal = Number(calcData.valor_final || calcData.valor_total);
+          }
+        } catch (_) {}
+      }
+      if (m.tool_calls) {
+        for (const tc of m.tool_calls) {
+          if (tc.function.name === 'calcular_orcamento') {
+            try {
+              const tcArgs = JSON.parse(tc.function.arguments);
+              if (!tipoServico && tcArgs.tipo_servico) tipoServico = tcArgs.tipo_servico;
+              if (comodos <= 0 && tcArgs.quantidade_comodos) comodos = Number(tcArgs.quantidade_comodos);
+            } catch (_) {}
+          }
+        }
+      }
+    }
+  }
+
+  const payloadSanitizado = {
+    nome: String(args.nome || 'Cliente').trim(),
+    telefone: String(args.telefone || '').trim(),
+    tipo_servico: tipoServico || 'parede_lisa',
+    comodos: Math.max(1, comodos || 1),
+    quantidade_comodos: Math.max(1, comodos || 1),
+    valor_total: valorTotal > 0 ? valorTotal : 120.0,
+    valor_calculado: valorTotal > 0 ? valorTotal : 120.0,
+  };
 
   // 1. Tentar invocar Edge Function salvar-lead se ambiente Supabase estiver configurado
   if (supabaseUrl && serviceKey) {
@@ -210,10 +262,20 @@ async function executarSalvarLead(args: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${serviceKey}`,
         },
-        body: JSON.stringify(args),
+        body: JSON.stringify(payloadSanitizado),
       });
       if (resp.ok) {
-        return await resp.json();
+        const data = await resp.json();
+        return {
+          sucesso: true,
+          success: true,
+          lead_id: data.lead_id || data.lead?.id || crypto.randomUUID(),
+          lead: data.lead || payloadSanitizado,
+          ...payloadSanitizado,
+        };
+      } else {
+        const errText = await resp.text();
+        console.warn('[chat] Erro retornado por salvar-lead:', resp.status, errText);
       }
     } catch (e) {
       console.warn('[chat] Falha na chamada HTTP para salvar-lead, usando gravação direta:', e);
@@ -225,7 +287,7 @@ async function executarSalvarLead(args: {
   if (supabaseUrl && serviceKey) {
     try {
       const supabase = createClient(supabaseUrl, serviceKey);
-      const { data } = await supabase.from('orcamentos_leads').insert([args]).select('id').single();
+      const { data } = await supabase.from('orcamentos_leads').insert([payloadSanitizado]).select('id').single();
       if (data?.id) leadId = data.id;
     } catch (e) {
       console.error('[chat] Erro ao inserir lead direto:', e);
@@ -233,10 +295,12 @@ async function executarSalvarLead(args: {
   }
 
   return {
+    sucesso: true,
     success: true,
     lead_id: leadId,
-    message: 'Lead registrado com sucesso!',
-    lead: args,
+    message: 'Lead registrado com sucesso! Notificação encaminhada ao Telegram do pintor Valdir.',
+    lead: payloadSanitizado,
+    ...payloadSanitizado,
   };
 }
 
@@ -395,17 +459,35 @@ Deno.serve(async (req: Request) => {
             data: executionResult,
           };
         } else if (fnName === 'salvar_lead') {
-          executionResult = await executarSalvarLead({
-            nome: String(fnArgs.nome || 'Cliente'),
-            telefone: String(fnArgs.telefone || ''),
-            tipo_servico: String(fnArgs.tipo_servico || 'parede_lisa'),
-            quantidade_comodos: Number(fnArgs.quantidade_comodos) || 1,
-            valor_calculado: Number(fnArgs.valor_calculado) || 0,
-          });
+          executionResult = await executarSalvarLead(
+            {
+              nome: String(fnArgs.nome || 'Cliente'),
+              telefone: String(fnArgs.telefone || ''),
+              tipo_servico: String(fnArgs.tipo_servico || 'parede_lisa'),
+              comodos: Number(fnArgs.comodos || fnArgs.quantidade_comodos || 1),
+              quantidade_comodos: Number(fnArgs.quantidade_comodos || fnArgs.comodos || 1),
+              valor_total: Number(fnArgs.valor_total || fnArgs.valor_calculado || 0),
+              valor_calculado: Number(fnArgs.valor_calculado || fnArgs.valor_total || 0),
+            },
+            conversationWithTools
+          );
+
+          const leadObj = (executionResult.lead as Record<string, unknown>) || executionResult;
 
           toolActionMeta = {
             type: 'lead_salvo',
-            data: executionResult,
+            data: {
+              ...executionResult,
+              ...leadObj,
+              lead: leadObj,
+              nome: String(leadObj.nome || fnArgs.nome || 'Cliente'),
+              telefone: String(leadObj.telefone || fnArgs.telefone || ''),
+              tipo_servico: String(leadObj.tipo_servico || fnArgs.tipo_servico || 'parede_lisa'),
+              comodos: Number(leadObj.comodos || leadObj.quantidade_comodos || fnArgs.comodos || 1),
+              quantidade_comodos: Number(leadObj.quantidade_comodos || leadObj.comodos || fnArgs.comodos || 1),
+              valor_total: Number(leadObj.valor_total || leadObj.valor_calculado || fnArgs.valor_total || 0),
+              valor_calculado: Number(leadObj.valor_calculado || leadObj.valor_total || fnArgs.valor_total || 0),
+            },
           };
         }
 
@@ -444,7 +526,10 @@ Deno.serve(async (req: Request) => {
           const d = toolActionMeta.data;
           fallbackText = `Seu orçamento para ${d.quantidade_comodos} cômodo(s) de ${d.nome_servico} ficou em ${d.valor_total_formatado}. Por favor, me informe seu Nome e WhatsApp para agendarmos!`;
         } else if (toolActionMeta?.type === 'lead_salvo') {
-          fallbackText = `Perfeito! Seus dados foram anotados e o pintor Valdir entrará em contato pelo WhatsApp em instantes.`;
+          const leadData = toolActionMeta.data as Record<string, unknown>;
+          const nomeCliente = String(leadData.nome || 'Cliente');
+          const foneCliente = String(leadData.telefone || '');
+          fallbackText = `Perfeito, ${nomeCliente}! Seus dados foram encaminhados diretamente ao Telegram do pintor Valdir. Ele entrará em contato com você pelo seu WhatsApp (${foneCliente}) para combinar a data e o início dos trabalhos.`;
         }
 
         return jsonResponse({

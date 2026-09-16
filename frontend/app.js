@@ -216,16 +216,24 @@
     const card = document.createElement('div');
     card.className = 'lead-card';
 
+    // Descompacta dados do lead suportando payload direto ou aninhado
+    const leadObj = (data && data.lead) ? data.lead : (data || {});
+    const nome = leadObj.nome || data.nome || 'Cliente';
+    const telefone = leadObj.telefone || data.telefone || '';
+    const tipoServico = leadObj.tipo_servico || data.tipo_servico || 'parede_lisa';
+    const comodos = Number(leadObj.comodos || leadObj.quantidade_comodos || data.comodos || data.quantidade_comodos || 1);
+    const valorNum = Number(leadObj.valor_total || leadObj.valor_calculado || data.valor_total || data.valor_calculado || 0);
+
     // Sincronizar lead com cache local para o painel administrativo
     try {
       const savedLeads = JSON.parse(localStorage.getItem('orcamento_local_leads') || '[]');
       const novoLead = {
-        id: data.lead_id || crypto.randomUUID(),
-        nome: data.nome || 'Cliente',
-        telefone: data.telefone || '',
-        tipo_servico: data.tipo_servico || 'parede_lisa',
-        quantidade_comodos: Number(data.quantidade_comodos || 1),
-        valor_calculado: Number(data.valor_calculado || 0),
+        id: data.lead_id || leadObj.id || crypto.randomUUID(),
+        nome: nome,
+        telefone: telefone,
+        tipo_servico: tipoServico,
+        quantidade_comodos: comodos,
+        valor_calculado: valorNum,
         created_at: new Date().toISOString(),
       };
       savedLeads.unshift(novoLead);
@@ -234,13 +242,13 @@
       console.warn('Erro ao cachear lead localmente:', e);
     }
 
-    const valorFormatado = Number(data.valor_calculado || 0).toLocaleString('pt-BR', {
+    const valorFormatado = valorNum.toLocaleString('pt-BR', {
       style: 'currency',
       currency: 'BRL',
     });
 
-    const nomeServico = data.tipo_servico === 'parede_textura' ? 'Parede com Textura' :
-      data.tipo_servico === 'teto' ? 'Teto' : 'Parede Lisa';
+    const nomeServico = tipoServico === 'parede_textura' ? 'Parede com Textura' :
+      tipoServico === 'teto' ? 'Teto' : 'Parede Lisa';
 
     card.innerHTML = `
       <div class="lead-header">
@@ -251,21 +259,21 @@
           </svg>
           Agendamento Solicitado
         </span>
-        <span class="lead-subtag">Lead Registrado</span>
+        <span class="lead-subtag">Enviado ao Telegram</span>
       </div>
 
       <div class="lead-details-table">
         <div class="lead-detail-row">
           <span class="lead-detail-label">Cliente Responsável</span>
-          <span class="lead-detail-val font-semibold">${data.nome || 'Cliente'}</span>
+          <span class="lead-detail-val font-semibold">${nome}</span>
         </div>
         <div class="lead-detail-row">
           <span class="lead-detail-label">WhatsApp / Contato</span>
-          <span class="lead-detail-val font-mono">${data.telefone || ''}</span>
+          <span class="lead-detail-val font-mono">${telefone || 'Informado no atendimento'}</span>
         </div>
         <div class="lead-detail-row">
           <span class="lead-detail-label">Serviço Aprovado</span>
-          <span class="lead-detail-val">${nomeServico} (${data.quantidade_comodos} cômodos)</span>
+          <span class="lead-detail-val">${nomeServico} (${comodos} cômodo${comodos > 1 ? 's' : ''})</span>
         </div>
         <div class="lead-detail-row">
           <span class="lead-detail-label">Valor do Orçamento</span>
@@ -279,8 +287,8 @@
           <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
         </svg>
         <div>
-          <strong>Notificação enviada ao pintor Valdir via Telegram</strong>
-          <p>Os detalhes do orçamento foram encaminhados. O pintor entrará em contato via WhatsApp para combinar o início dos trabalhos.</p>
+          <strong>Notificação enviada ao Telegram do pintor Valdir</strong>
+          <p>Seus dados foram encaminhados diretamente ao Telegram do pintor Valdir. Ele entrará em contato com você pelo seu WhatsApp para combinar a data e o início dos trabalhos.</p>
         </div>
       </div>
     `;

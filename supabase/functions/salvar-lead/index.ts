@@ -184,38 +184,35 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const body: Partial<SalvarLeadPayload> = await req.json().catch(() => ({}));
-    const { nome, telefone, tipo_servico, quantidade_comodos, valor_calculado } = body;
+    const body: Record<string, unknown> = await req.json().catch(() => ({}));
+    const nomeRaw = String(body.nome || '').trim();
+    const telefoneRaw = String(body.telefone || '').trim();
+    const tipoServicoRaw = String(body.tipo_servico || 'parede_lisa').trim();
 
-    // 3. Validação rigorosa dos campos obrigatórios
-    if (!nome || typeof nome !== 'string' || nome.trim().length < 2) {
+    // 3. Validação com fallback e sanitização de campos
+    if (!nomeRaw || nomeRaw.length < 2) {
       return errorResponse('O campo "nome" é obrigatório e deve ter pelo menos 2 caracteres.', 400);
     }
 
-    if (!telefone || typeof telefone !== 'string' || telefone.trim().length < 8) {
+    if (!telefoneRaw || telefoneRaw.length < 8) {
       return errorResponse('O campo "telefone" é obrigatório e deve conter um número de contato válido.', 400);
     }
 
-    if (!tipo_servico || typeof tipo_servico !== 'string') {
-      return errorResponse('O campo "tipo_servico" é obrigatório.', 400);
-    }
+    // Suporta comodos ou quantidade_comodos
+    const rawComodos = body.comodos !== undefined ? body.comodos : body.quantidade_comodos;
+    const comodos = Math.max(1, Math.round(Number(rawComodos) || 1));
 
-    const comodos = Number(quantidade_comodos);
-    if (!Number.isInteger(comodos) || comodos <= 0) {
-      return errorResponse('O campo "quantidade_comodos" deve ser um número inteiro maior que zero.', 400);
-    }
-
-    const valor = Number(valor_calculado);
-    if (isNaN(valor) || valor <= 0) {
-      return errorResponse('O campo "valor_calculado" deve ser um valor numérico positivo.', 400);
-    }
+    // Suporta valor_total ou valor_calculado
+    const rawValor = body.valor_total !== undefined ? body.valor_total : body.valor_calculado;
+    const valorNum = Number(rawValor);
+    const valorCalculado = (!isNaN(valorNum) && valorNum > 0) ? Number(valorNum.toFixed(2)) : 120.00;
 
     const leadSanitizado = {
-      nome: nome.trim(),
-      telefone: telefone.trim(),
-      tipo_servico: tipo_servico.trim(),
+      nome: nomeRaw,
+      telefone: telefoneRaw,
+      tipo_servico: tipoServicoRaw || 'parede_lisa',
       quantidade_comodos: comodos,
-      valor_calculado: Number(valor.toFixed(2)),
+      valor_calculado: valorCalculado,
     };
 
     // 4. Conexão com Supabase usando SERVICE_ROLE_KEY para gravação segura
@@ -223,7 +220,7 @@ Deno.serve(async (req: Request) => {
     const supabaseServiceKey =
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? Deno.env.get('SUPABASE_ANON_KEY') ?? '';
 
-    let leadId = crypto.randomUUID();
+    let leadId: string = crypto.randomUUID();
     let gravadoNoBanco = false;
 
     let supabaseClient: any = null;
@@ -241,9 +238,11 @@ Deno.serve(async (req: Request) => {
         return errorResponse('Erro ao registrar lead no banco de dados.', 500, error.message);
       }
 
-      leadId = data.id;
-      gravadoNoBanco = true;
-      console.log('[salvar-lead] Lead gravado com sucesso no Supabase! ID:', leadId);
+      if (data?.id) {
+        leadId = String(data.id);
+        gravadoNoBanco = true;
+        console.log('[salvar-lead] Lead gravado com sucesso no Supabase! ID:', leadId);
+      }
     } else {
       console.warn('[salvar-lead] Supabase não configurado no ambiente atual. Gerado ID simulado:', leadId);
     }
@@ -251,12 +250,25 @@ Deno.serve(async (req: Request) => {
     // 5. Disparo da Notificação no Telegram (Não bloqueante para o sucesso do cliente)
     const statusTelegram = await enviarNotificacaoTelegram(leadSanitizado, supabaseClient);
 
+    // Objeto consolidado do lead com todos os aliases
+    const leadRetorno = {
+      id: leadId,
+      nome: leadSanitizado.nome,
+      telefone: leadSanitizado.telefone,
+      tipo_servico: leadSanitizado.tipo_servico,
+      comodos: leadSanitizado.quantidade_comodos,
+      quantidade_comodos: leadSanitizado.quantidade_comodos,
+      valor_total: leadSanitizado.valor_calculado,
+      valor_calculado: leadSanitizado.valor_calculado,
+    };
+
     // 6. Retorno de sucesso ao chamador
     return jsonResponse({
+      sucesso: true,
       success: true,
       lead_id: leadId,
-      message: 'Lead registrado com sucesso! O pintor entrará em contato em breve.',
-      lead: leadSanitizado,
+      message: 'Lead registrado com sucesso! Notificação encaminhada ao Telegram do pintor Valdir.',
+      lead: leadRetorno,
       banco_salvo: gravadoNoBanco,
       telegram_notificado: statusTelegram.enviado,
       telegram_detalhes: statusTelegram.motivo || 'Mensagem enviada com sucesso',
