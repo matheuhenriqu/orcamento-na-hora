@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "test": "node test_scenarios.js",
+    "build:docx": "node generate_docx.js",
     "deploy:pages": "npx wrangler pages deploy frontend --project-name orcamento-na-hora"
   },
   "keywords": [
@@ -18,5 +19,8 @@
     "telegram-bot"
   ],
   "author": "Aluno SENAI-SP",
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "docx": "^9.7.1"
+  }
 }
