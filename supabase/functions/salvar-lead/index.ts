@@ -184,17 +184,17 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const body: Record<string, unknown> = await req.json().catch(() => ({}));
-    const nomeRaw = String(body.nome || '').trim();
+    const rawInput: Record<string, unknown> = await req.json().catch(() => ({}));
+    const body = ((rawInput.lead || rawInput.data || rawInput.args || rawInput) as Record<string, unknown>) || {};
+    let nomeRaw = String(body.nome || '').trim();
+    if (!nomeRaw || nomeRaw.length < 2) {
+      nomeRaw = 'Cliente';
+    }
     const telefoneRaw = String(body.telefone || '').trim();
     const tipoServicoRaw = String(body.tipo_servico || 'parede_lisa').trim();
 
     // 3. Validação com fallback e sanitização de campos
-    if (!nomeRaw || nomeRaw.length < 2) {
-      return errorResponse('O campo "nome" é obrigatório e deve ter pelo menos 2 caracteres.', 400);
-    }
-
-    if (!telefoneRaw || telefoneRaw.length < 8) {
+    if (!telefoneRaw || telefoneRaw.replace(/\D/g, '').length < 8) {
       return errorResponse('O campo "telefone" é obrigatório e deve conter um número de contato válido.', 400);
     }
 

@@ -50,14 +50,19 @@ REGRAS ESPECIAIS E DESCONTOS (CRITÉRIOS DESEJÁVEIS):
 - Desconto por quantidade: Para 5 ou mais cômodos, é aplicado automaticamente 10% de desconto no valor total pela ferramenta "calcular_orcamento"!
 - Taxa de visita/deslocamento: Se o cliente mencionar que o imóvel é distante, sítio, chácara, fora da cidade ou zona rural, passe "taxa_visita: true" para a ferramenta "calcular_orcamento" (taxa de R$ 30,00).
 
-DIRETRIZES DE COMPORTAMENTO OBRIGATÓRIAS:
+DIRETRIZES DE COMPORTAMENTO E TOOL CALLING NATIVO (REGRAS CRÍTICAS):
 1. NUNCA calcule valores de cabeça. NUNCA invente preços, quantidades de cômodos ou dados de clientes.
 2. Se o cliente disser apenas "quero um orçamento" ou não tiver informado o serviço E a quantidade de cômodos, pergunte com gentileza qual o serviço (parede lisa, parede com textura ou teto) e quantos cômodos serão pintados.
-3. Assim que o cliente tiver fornecido o serviço e a quantidade de cômodos, você DEVE OBRIGATORIAMENTE chamar a ferramenta "calcular_orcamento". Não faça contas manuais no texto.
+3. Assim que o cliente tiver fornecido o serviço e a quantidade de cômodos, você DEVE OBRIGATORIAMENTE chamar a ferramenta nativa "calcular_orcamento". Não faça contas manuais no texto.
 4. Ao receber o retorno da ferramenta "calcular_orcamento", apresente o valor total detalhado com entusiasmo (mencionando o desconto se houver) e solicite o Nome e o WhatsApp/Telefone do cliente para que o Valdir possa registrar o pedido e entrar em contato para agendar ou tirar dúvidas.
-5. Ao coletar o nome e telefone do cliente, você NUNCA deve chamar "salvar_lead" com campos vazios, nulos ou zerados.
-6. Resgate obrigatoriamente do histórico imediato o tipo de serviço contratado, a quantidade de cômodos e o valor_total final calculado pelo "calcular_orcamento" e passe-os como argumentos para "salvar_lead" (nome, telefone, tipo_servico, comodos, valor_total).
-7. Após chamar "salvar_lead" com sucesso, responda no chat confirmando exatamente: "Perfeito, {nome}! Seus dados foram encaminhados diretamente ao Telegram do pintor Valdir. Ele entrará em contato com você pelo seu WhatsApp ({telefone}) para combinar a data e o início dos trabalhos."`;
+5. ASSIM QUE O CLIENTE FORNECER NOME E WHATSAPP/TELEFONE:
+   - Você DEVE acionar IMEDIATAMENTE a ferramenta nativa "salvar_lead" (ou "confirmar_agendamento") via tool_calls.
+   - É ESTRITAMENTE PROIBIDO escrever mensagens preliminares como "Agora vou registrar seus dados...", "Vou anotar...", ou listar os dados em linhas de texto no chat (como Nome, Telefone, Serviço, quantidade_comodos, valor).
+   - NUNCA emita nomes de parâmetros soltos, tags sintéticas ou códigos (ex: "quantidade_comodos>", "salvar_lead(...)").
+   - A chamada à ferramenta DEVE SER 100% NATIVA e SILENCIOSA através do mecanismo tool_calls da API.
+6. Resgate do histórico imediato o tipo de serviço contratado, a quantidade de cômodos e o valor total final calculado pelo "calcular_orcamento" e passe-os como argumentos para "salvar_lead" (nome, telefone, tipo_servico, quantidade_comodos, valor_total).
+7. A confirmação para o cliente só ocorre APÓS o retorno da ferramenta "salvar_lead", respondendo exatamente:
+   "Perfeito, {nome}! Seus dados foram encaminhados diretamente ao Telegram do pintor Valdir. Ele entrará em contato com você pelo seu WhatsApp ({telefone}) para combinar a data e o início dos trabalhos."`;
 
 // ============================================================================
 // DEFINIÇÃO DAS FERRAMENTAS (TOOL CALLING SCHEMA)
@@ -115,18 +120,75 @@ const TOOLS = [
             enum: ['parede_lisa', 'parede_textura', 'teto'],
             description: 'Tipo de serviço previamente orçado (parede_lisa, parede_textura ou teto).',
           },
+          quantidade_comodos: {
+            type: 'integer',
+            minimum: 1,
+            description: 'Quantidade de cômodos calculados no orçamento prévio.',
+          },
           comodos: {
             type: 'integer',
             minimum: 1,
-            description: 'Número de cômodos calculados no orçamento prévio.',
+            description: 'Alias de quantidade_comodos.',
           },
           valor_total: {
             type: 'number',
             minimum: 1,
             description: 'Valor final total do orçamento calculado previamente pela ferramenta calcular_orcamento.',
           },
+          valor_calculado: {
+            type: 'number',
+            minimum: 1,
+            description: 'Alias de valor_total.',
+          },
         },
-        required: ['nome', 'telefone', 'tipo_servico', 'comodos', 'valor_total'],
+        required: ['nome', 'telefone'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'confirmar_agendamento',
+      description:
+        'Alias de salvar_lead. Confirma o agendamento e persiste o lead, encaminhando ao Telegram do pintor Valdir.',
+      parameters: {
+        type: 'object',
+        properties: {
+          nome: {
+            type: 'string',
+            description: 'Nome completo ou primeiro nome informado pelo cliente.',
+          },
+          telefone: {
+            type: 'string',
+            description: 'Telefone ou número de WhatsApp para contato do cliente.',
+          },
+          tipo_servico: {
+            type: 'string',
+            enum: ['parede_lisa', 'parede_textura', 'teto'],
+            description: 'Tipo de serviço previamente orçado.',
+          },
+          quantidade_comodos: {
+            type: 'integer',
+            minimum: 1,
+            description: 'Quantidade de cômodos calculados.',
+          },
+          comodos: {
+            type: 'integer',
+            minimum: 1,
+            description: 'Alias de quantidade_comodos.',
+          },
+          valor_total: {
+            type: 'number',
+            minimum: 1,
+            description: 'Valor final total do orçamento.',
+          },
+          valor_calculado: {
+            type: 'number',
+            minimum: 1,
+            description: 'Alias de valor_total.',
+          },
+        },
+        required: ['nome', 'telefone'],
       },
     },
   },
@@ -195,6 +257,110 @@ async function executarCalcularOrcamento(args: {
   };
 }
 
+// ============================================================================
+// FUNÇÃO DE SANITIZAÇÃO DE TEXTO DO ASSISTENTE
+// ============================================================================
+function sanitizeTextOutput(text: string): string {
+  if (!text) return '';
+
+  // Se o texto contiver o padrão de vazamento observado em produção (ex: "Agora vou registrar...", "quantidade_comodos>")
+  if (/quantidade_comodos|Agora vou registrar|salvar_lead/i.test(text)) {
+    return '';
+  }
+
+  return text
+    // Remove tags de raciocínio (<think>...</think>)
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    // Remove blocos de tool call sintéticos (<tool_call>...</tool_call>)
+    .replace(/<tool_call>[\s\S]*?<\/tool_call>/gi, '')
+    // Remove blocos sintéticos estilo <function=...>...</function>
+    .replace(/<function[=\s][\s\S]*?<\/function>/gi, '')
+    // Remove tags avulsas sintéticas
+    .replace(/<\/?(?:tool_call|tool_response|function|think)[^>]*>/gi, '')
+    // Remove vazamento explícito de parâmetros (ex: quantidade_comodos> 5 540.00 ou salvar_lead(...))
+    .replace(/(?:quantidade_comodos|comodos|tipo_servico|valor_total)\s*>\s*[\d.\s]+/gi, '')
+    .replace(/(?:salvar_lead|confirmar_agendamento|calcular_orcamento)\s*\([^\)]*\)/gi, '')
+    .replace(/\{"name":\s*"(?:salvar_lead|confirmar_agendamento|calcular_orcamento)"[\s\S]*?\}/gi, '')
+    // Normaliza quebras de linha e espaços
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
+ * Detecta e extrai chamadas sintéticas de ferramentas quando o LLM
+ * vaza JSON ou tags no content ao invés de usar o campo tool_calls.
+ */
+function extractSyntheticToolCall(content: string): { name: string; args: Record<string, unknown> } | null {
+  if (!content) return null;
+
+  // 1. Tag <tool_call>{"name": "...", "arguments": {...}}</tool_call>
+  const matchToolCall = content.match(/<tool_call>([\s\S]*?)<\/tool_call>/i);
+  if (matchToolCall && matchToolCall[1]) {
+    try {
+      const parsed = JSON.parse(matchToolCall[1].trim());
+      if (parsed.name) {
+        const args = typeof parsed.arguments === 'string' ? JSON.parse(parsed.arguments) : (parsed.arguments || parsed.parameters || {});
+        return { name: parsed.name, args };
+      }
+    } catch (_) {}
+  }
+
+  // 2. Formato <function=salvar_lead>{"nome": ...}</function>
+  const matchFunctionTag = content.match(/<function=([a-zA-Z0-9_]+)>([\s\S]*?)<\/function>/i);
+  if (matchFunctionTag) {
+    const fnName = matchFunctionTag[1];
+    try {
+      const args = JSON.parse(matchFunctionTag[2].trim());
+      return { name: fnName, args };
+    } catch (_) {}
+  }
+
+  // 3. JSON solto com salvar_lead ou confirmar_agendamento
+  const matchJson = content.match(/\{[\s\r\n]*"(?:name|function)"\s*:\s*"(salvar_lead|confirmar_agendamento|calcular_orcamento)"[\s\S]*?\}/i);
+  if (matchJson) {
+    try {
+      const parsed = JSON.parse(matchJson[0]);
+      const name = parsed.name || parsed.function;
+      const args = typeof parsed.arguments === 'string' ? JSON.parse(parsed.arguments) : (parsed.arguments || parsed.parameters || parsed);
+      return { name, args };
+    } catch (_) {}
+  }
+
+  // 4. Detecção e extração de parâmetros brutos vazados no chat (ex: quantidade_comodos>, valores em linhas separadas)
+  if (
+    content.includes('quantidade_comodos') ||
+    content.includes('salvar_lead') ||
+    content.includes('confirmar_agendamento') ||
+    content.includes('Agora vou registrar')
+  ) {
+    const args: Record<string, unknown> = {};
+    const phoneMatch = content.match(/\b(?:\+?55\s?)?(?:\(?\d{2}\)?[\s-]?)?\d{4,5}[-\s]?\d{4}\b/);
+    if (phoneMatch) args.telefone = phoneMatch[0];
+
+    const lines = content.split('\n').map((l) => l.trim()).filter(Boolean);
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (/textura/i.test(line)) args.tipo_servico = 'parede_textura';
+      else if (/teto/i.test(line)) args.tipo_servico = 'teto';
+      else if (/parede\s*lisa/i.test(line)) args.tipo_servico = 'parede_lisa';
+
+      if (line.includes('quantidade_comodos')) {
+        const nextLine = lines[i + 1];
+        if (nextLine && /^\d+$/.test(nextLine)) {
+          args.quantidade_comodos = parseInt(nextLine, 10);
+        }
+        const nextValLine = lines[i + 2];
+        if (nextValLine && /^[\d.]+$/.test(nextValLine)) {
+          args.valor_total = parseFloat(nextValLine);
+        }
+      }
+    }
+    return { name: 'salvar_lead', args };
+  }
+
+  return null;
+}
+
 async function executarSalvarLead(
   args: {
     nome?: string;
@@ -205,7 +371,13 @@ async function executarSalvarLead(
     valor_total?: number;
     valor_calculado?: number;
   },
-  historicoMensagens?: ChatMessage[]
+  historicoMensagens?: ChatMessage[],
+  contextUltimoOrcamento?: {
+    tipo_servico?: string;
+    quantidade_comodos?: number;
+    valor_calculado?: number;
+    valor_total?: number;
+  }
 ) {
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? Deno.env.get('SUPABASE_ANON_KEY');
@@ -215,8 +387,17 @@ async function executarSalvarLead(
   let comodos = Number(args.comodos || args.quantidade_comodos || 0);
   let valorTotal = Number(args.valor_total || args.valor_calculado || 0);
 
+  // 1. Resgata do context explícito se disponível
+  if (contextUltimoOrcamento) {
+    if (!tipoServico && contextUltimoOrcamento.tipo_servico) tipoServico = contextUltimoOrcamento.tipo_servico;
+    if (comodos <= 0 && contextUltimoOrcamento.quantidade_comodos) comodos = Number(contextUltimoOrcamento.quantidade_comodos);
+    if (valorTotal <= 0 && (contextUltimoOrcamento.valor_calculado || contextUltimoOrcamento.valor_total)) {
+      valorTotal = Number(contextUltimoOrcamento.valor_calculado || contextUltimoOrcamento.valor_total);
+    }
+  }
+
+  // 2. Resgata do histórico de mensagens (tool results e mensagens de assistente anteriores)
   if ((!tipoServico || comodos <= 0 || valorTotal <= 0) && Array.isArray(historicoMensagens)) {
-    // Procurar a última tool call calcular_orcamento ou tool result no histórico
     for (let i = historicoMensagens.length - 1; i >= 0; i--) {
       const m = historicoMensagens[i];
       if (m.role === 'tool' && m.name === 'calcular_orcamento' && m.content) {
@@ -237,6 +418,25 @@ async function executarSalvarLead(
               if (!tipoServico && tcArgs.tipo_servico) tipoServico = tcArgs.tipo_servico;
               if (comodos <= 0 && tcArgs.quantidade_comodos) comodos = Number(tcArgs.quantidade_comodos);
             } catch (_) {}
+          }
+        }
+      }
+      // Heurística em mensagens textuais anteriores do assistente com orçamentos
+      if (m.role === 'assistant' && m.content) {
+        if (!tipoServico) {
+          if (/textura/i.test(m.content)) tipoServico = 'parede_textura';
+          else if (/teto/i.test(m.content)) tipoServico = 'teto';
+          else if (/parede\s*lisa/i.test(m.content)) tipoServico = 'parede_lisa';
+        }
+        if (comodos <= 0) {
+          const comodosMatch = m.content.match(/(\d+)\s*cômodo/i);
+          if (comodosMatch) comodos = parseInt(comodosMatch[1], 10);
+        }
+        if (valorTotal <= 0) {
+          const valorMatch = m.content.match(/R\$\s*([\d.,]+)/i);
+          if (valorMatch) {
+            const parsedVal = parseFloat(valorMatch[1].replace('.', '').replace(',', '.'));
+            if (!isNaN(parsedVal) && parsedVal > 0) valorTotal = parsedVal;
           }
         }
       }
@@ -261,6 +461,7 @@ async function executarSalvarLead(
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${serviceKey}`,
+          apikey: `${serviceKey}`,
         },
         body: JSON.stringify(payloadSanitizado),
       });
@@ -282,13 +483,43 @@ async function executarSalvarLead(
     }
   }
 
-  // 2. Gravação direta de contingência no Supabase
+  // 2. Gravação direta de contingência no Supabase + Disparo Telegram
   let leadId = crypto.randomUUID();
   if (supabaseUrl && serviceKey) {
     try {
       const supabase = createClient(supabaseUrl, serviceKey);
       const { data } = await supabase.from('orcamentos_leads').insert([payloadSanitizado]).select('id').single();
       if (data?.id) leadId = data.id;
+
+      // Disparo de contingência direto ao Telegram caso o endpoint HTTP tenha falhado
+      const botToken = Deno.env.get('TELEGRAM_BOT_TOKEN');
+      const chatId = Deno.env.get('TELEGRAM_CHAT_ID');
+      if (botToken && chatId) {
+        try {
+          const nomeServ =
+            payloadSanitizado.tipo_servico === 'parede_textura'
+              ? 'Parede com Textura'
+              : payloadSanitizado.tipo_servico === 'teto'
+              ? 'Teto'
+              : 'Parede Lisa';
+          const foneLimpo = payloadSanitizado.telefone.replace(/\D/g, '');
+          const waLink = `https://wa.me/${foneLimpo.startsWith('55') ? foneLimpo : '55' + foneLimpo}`;
+          const msgHtml = `🎨 <b>NOVO ORÇAMENTO REGISTRADO NO SITE!</b> 🎨\n\n👤 <b>Cliente:</b> ${payloadSanitizado.nome}\n📱 <b>WhatsApp:</b> <a href="${waLink}">${payloadSanitizado.telefone}</a>\n🛠️ <b>Serviço:</b> ${nomeServ}\n🚪 <b>Quantidade:</b> ${payloadSanitizado.quantidade_comodos} cômodo(s)\n💰 <b>Valor Estimado:</b> <b>R$ ${payloadSanitizado.valor_calculado.toFixed(2).replace('.', ',')}</b>\n\n👉 <a href="${waLink}">Clique aqui para chamar no WhatsApp</a>`;
+
+          await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: msgHtml,
+              parse_mode: 'HTML',
+              disable_web_page_preview: true,
+            }),
+          });
+        } catch (tgErr) {
+          console.warn('[chat] Falha no envio de contingência do Telegram:', tgErr);
+        }
+      }
     } catch (e) {
       console.error('[chat] Erro ao inserir lead direto:', e);
     }
@@ -318,7 +549,7 @@ Deno.serve(async (req: Request) => {
 
   try {
     const body: ChatRequestBody = await req.json().catch(() => ({ messages: [] }));
-    const { messages } = body;
+    const { messages, context } = body;
 
     if (!Array.isArray(messages) || messages.length === 0) {
       return errorResponse('O campo "messages" deve ser um array com o histórico de conversa.', 400);
@@ -331,10 +562,6 @@ Deno.serve(async (req: Request) => {
         500
       );
     }
-
-    // Seleção de modelo da família Qwen com suporte a Tool Calling / Reasoning
-    // 'deepseek-r1-distill-qwen-32b' ou 'qwen-2.5-coder-32b' ou 'llama-3.3-70b-versatile'
-    const groqModel = Deno.env.get('GROQ_MODEL') || 'deepseek-r1-distill-qwen-32b';
 
     // Montar histórico de mensagens para a API da Groq
     const groqMessages: ChatMessage[] = [
@@ -363,32 +590,65 @@ Deno.serve(async (req: Request) => {
       console.warn('[chat] Falha ao consultar lista de modelos da Groq:', e);
     }
 
-    // Priorizar modelos da família Qwen ou modelos rápidos com Tool Calling
-    const qwenModel = availableModelIds.find((id) => id.toLowerCase().includes('qwen'));
-    const llamaModel = availableModelIds.find(
-      (id) => id.includes('llama-3.3') || id.includes('llama-3.1-70b') || id.includes('llama-3.1-8b')
-    );
-    const fallbackModel = availableModelIds[0] || 'llama-3.1-8b-instant';
+    // Priorizar modelos com suporte nativo e comprovado a TOOL CALLING.
+    // IMPORTANTE: Excluir modelos de raciocínio profundo puro (deepseek-r1),
+    // pois eles não implementam tool_calls nativos na Groq API e vazam parâmetros em texto.
+    const isToolCapableModel = (id: string) => {
+      const lower = id.toLowerCase();
+      return !lower.includes('r1') && !lower.includes('distill');
+    };
 
-    const preferredModel = Deno.env.get('GROQ_MODEL') || qwenModel || llamaModel || fallbackModel;
-    const modelsToTry = [...new Set([preferredModel, qwenModel, llamaModel, fallbackModel].filter(Boolean) as string[])];
+    const qwenModel = availableModelIds.find((id) => id.toLowerCase().includes('qwen') && isToolCapableModel(id));
+    const llamaVersatile = availableModelIds.find((id) => id.includes('llama-3.3-70b-versatile'));
+    const llamaFast = availableModelIds.find((id) => id.includes('llama-3.1-8b-instant'));
+    const anyToolModel = availableModelIds.find(isToolCapableModel);
+
+    const envModel = Deno.env.get('GROQ_MODEL');
+    const validEnvModel = envModel && isToolCapableModel(envModel) ? envModel : null;
+
+    const preferredModel =
+      validEnvModel ||
+      qwenModel ||
+      llamaVersatile ||
+      llamaFast ||
+      anyToolModel ||
+      'llama-3.3-70b-versatile';
+
+    const modelsToTry = [
+      ...new Set(
+        [
+          preferredModel,
+          qwenModel,
+          llamaVersatile,
+          llamaFast,
+          'llama-3.3-70b-versatile',
+          'llama-3.1-8b-instant',
+        ].filter(Boolean) as string[]
+      ),
+    ];
 
     let completionData: Record<string, unknown> | null = null;
     let selectedModel = modelsToTry[0];
     const allErrors: Array<{ model: string; status: number; error: string }> = [];
 
+    // Se o cliente forneceu telefone/WhatsApp na última mensagem, forçar tool_choice nativo para salvar_lead
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user');
+    const userText = lastUserMsg?.content || '';
+    const hasPhone = /\b(?:\+?55\s?)?(?:\(?\d{2}\)?[\s-]?)?\d{4,5}[-\s]?\d{4}\b/.test(userText);
+    const targetToolChoice = hasPhone ? { type: 'function', function: { name: 'salvar_lead' } } : 'auto';
+
     for (const model of modelsToTry) {
       console.log(`[chat] Tentando Groq com modelo: ${model}...`);
-      const groqPayload = {
+      const groqPayload: Record<string, unknown> = {
         model,
         messages: groqMessages,
         tools: TOOLS,
-        tool_choice: 'auto',
-        temperature: 0.2,
+        tool_choice: targetToolChoice,
+        temperature: 0.1,
         max_tokens: 600,
       };
 
-      const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      let groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -396,6 +656,19 @@ Deno.serve(async (req: Request) => {
         },
         body: JSON.stringify(groqPayload),
       });
+
+      // Se o modelo rejeitar tool_choice de função nomeada (HTTP 400), tentar novamente com 'auto'
+      if (!groqResponse.ok && targetToolChoice !== 'auto') {
+        groqPayload.tool_choice = 'auto';
+        groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${groqApiKey}`,
+          },
+          body: JSON.stringify(groqPayload),
+        });
+      }
 
       if (groqResponse.ok) {
         completionData = await groqResponse.json();
@@ -420,21 +693,74 @@ Deno.serve(async (req: Request) => {
       return errorResponse('Nenhuma resposta retornada pelo modelo de IA.', 500);
     }
 
-    // Verificar se o modelo decidiu acionar alguma Tool
-    if (assistantMsg.tool_calls && assistantMsg.tool_calls.length > 0) {
-      console.log(`[chat] O modelo acionou ${assistantMsg.tool_calls.length} ferramenta(s).`);
+    // Identificar lista de tool calls (nativas ou detectadas de tags sintéticas)
+    let toolCallsToProcess = assistantMsg.tool_calls ? [...assistantMsg.tool_calls] : [];
 
-      // Guardar metadados para envio ao frontend (renderizar card verde ou azul)
+    // Fallback 1: Caso o modelo tenha gerado tags sintéticas ou vazado parâmetros no content
+    if (toolCallsToProcess.length === 0 && assistantMsg.content) {
+      const synthetic = extractSyntheticToolCall(assistantMsg.content);
+      if (synthetic) {
+        console.log('[chat] Tool call sintética ou vazamento detectado no conteúdo:', synthetic);
+        toolCallsToProcess.push({
+          id: `call_${crypto.randomUUID().slice(0, 8)}`,
+          type: 'function',
+          function: {
+            name: synthetic.name,
+            arguments: JSON.stringify(synthetic.args),
+          },
+        });
+      }
+    }
+
+    // Fallback 2: Heurística de captura de Lead resiliente
+    // Se a última mensagem do usuário contiver número de telefone/WhatsApp e não houve tool call disparada
+    if (toolCallsToProcess.length === 0) {
+      const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user');
+      const userText = lastUserMsg?.content || '';
+      const phoneMatch = userText.match(/\b(?:\+?55\s?)?(?:\(?\d{2}\)?[\s-]?)?\d{4,5}[-\s]?\d{4}\b/);
+
+      if (phoneMatch) {
+        console.log('[chat] Lead detectado por heurística de contato no chat do usuário!');
+        const rawNome = userText
+          .replace(phoneMatch[0], '')
+          .replace(/\b(meu|nome|é|whatsapp|fone|tel|e|sou|o|a)\b/gi, ' ')
+          .replace(/[,.:;\-_]/g, ' ')
+          .trim();
+        const nomeCliente = rawNome.length >= 2 ? rawNome.split(/\s+/)[0] : 'Cliente';
+
+        toolCallsToProcess.push({
+          id: `call_${crypto.randomUUID().slice(0, 8)}`,
+          type: 'function',
+          function: {
+            name: 'salvar_lead',
+            arguments: JSON.stringify({
+              nome: nomeCliente,
+              telefone: phoneMatch[0],
+            }),
+          },
+        });
+      }
+    }
+
+    // Verificar se há ferramentas a executar
+    if (toolCallsToProcess.length > 0) {
+      console.log(`[chat] Processando ${toolCallsToProcess.length} ferramenta(s)...`);
+
       let toolActionMeta: {
         type: 'orcamento_calculado' | 'lead_salvo';
         data: Record<string, unknown>;
       } | null = null;
 
-      // Adiciona a mensagem do assistente com as tool_calls ao histórico
-      const conversationWithTools = [...groqMessages, assistantMsg];
+      const conversationWithTools = [
+        ...groqMessages,
+        {
+          role: 'assistant' as const,
+          content: assistantMsg.content || '',
+          tool_calls: toolCallsToProcess,
+        },
+      ];
 
-      // Executar as ferramentas solicitadas
-      for (const toolCall of assistantMsg.tool_calls) {
+      for (const toolCall of toolCallsToProcess) {
         const fnName = toolCall.function.name;
         let fnArgs: Record<string, unknown> = {};
         try {
@@ -444,13 +770,12 @@ Deno.serve(async (req: Request) => {
         }
 
         console.log(`[chat] Executando tool: ${fnName}`, fnArgs);
-
         let executionResult: Record<string, unknown> = {};
 
         if (fnName === 'calcular_orcamento') {
           executionResult = await executarCalcularOrcamento({
             tipo_servico: String(fnArgs.tipo_servico || 'parede_lisa'),
-            quantidade_comodos: Number(fnArgs.quantidade_comodos) || 1,
+            quantidade_comodos: Number(fnArgs.quantidade_comodos || fnArgs.comodos) || 1,
             taxa_visita: Boolean(fnArgs.taxa_visita),
           });
 
@@ -458,18 +783,19 @@ Deno.serve(async (req: Request) => {
             type: 'orcamento_calculado',
             data: executionResult,
           };
-        } else if (fnName === 'salvar_lead') {
+        } else if (fnName === 'salvar_lead' || fnName === 'confirmar_agendamento') {
           executionResult = await executarSalvarLead(
             {
               nome: String(fnArgs.nome || 'Cliente'),
               telefone: String(fnArgs.telefone || ''),
-              tipo_servico: String(fnArgs.tipo_servico || 'parede_lisa'),
-              comodos: Number(fnArgs.comodos || fnArgs.quantidade_comodos || 1),
-              quantidade_comodos: Number(fnArgs.quantidade_comodos || fnArgs.comodos || 1),
+              tipo_servico: String(fnArgs.tipo_servico || ''),
+              comodos: Number(fnArgs.comodos || fnArgs.quantidade_comodos || 0),
+              quantidade_comodos: Number(fnArgs.quantidade_comodos || fnArgs.comodos || 0),
               valor_total: Number(fnArgs.valor_total || fnArgs.valor_calculado || 0),
               valor_calculado: Number(fnArgs.valor_calculado || fnArgs.valor_total || 0),
             },
-            conversationWithTools
+            conversationWithTools,
+            context?.ultimo_orcamento
           );
 
           const leadObj = (executionResult.lead as Record<string, unknown>) || executionResult;
@@ -491,7 +817,6 @@ Deno.serve(async (req: Request) => {
           };
         }
 
-        // Adiciona a resposta da ferramenta com role "tool"
         conversationWithTools.push({
           role: 'tool',
           tool_call_id: toolCall.id,
@@ -500,46 +825,43 @@ Deno.serve(async (req: Request) => {
         });
       }
 
-      // 2ª Chamada à Groq API para gerar a resposta final com base no retorno da tool
-      console.log('[chat] Chamando Groq para consolidar resposta final com o retorno das tools...');
+      // 2ª Chamada à Groq API para consolidar a resposta final humanizada
+      let finalReply = '';
+      try {
+        const secondResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${groqApiKey}`,
+          },
+          body: JSON.stringify({
+            model: selectedModel,
+            messages: conversationWithTools,
+            temperature: 0.2,
+            max_tokens: 600,
+          }),
+        });
 
-      const secondResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${groqApiKey}`,
-        },
-        body: JSON.stringify({
-          model: selectedModel,
-          messages: conversationWithTools,
-          temperature: 0.3,
-          max_tokens: 600,
-        }),
-      });
+        if (secondResponse.ok) {
+          const secondData = await secondResponse.json();
+          finalReply = sanitizeTextOutput(secondData.choices?.[0]?.message?.content || '');
+        }
+      } catch (secErr) {
+        console.warn('[chat] Aviso na 2ª chamada Groq:', secErr);
+      }
 
-      if (!secondResponse.ok) {
-        const errText = await secondResponse.text();
-        console.error('[chat] Erro na 2ª chamada Groq:', secondResponse.status, errText);
-        // Resposta de fallback elegante caso a 2ª chamada falhe
-        let fallbackText = 'Operação realizada com sucesso!';
+      // Se a resposta final estiver vazia ou com falha, gerar mensagem de confirmação padronizada
+      if (!finalReply.trim()) {
         if (toolActionMeta?.type === 'orcamento_calculado') {
           const d = toolActionMeta.data;
-          fallbackText = `Seu orçamento para ${d.quantidade_comodos} cômodo(s) de ${d.nome_servico} ficou em ${d.valor_total_formatado}. Por favor, me informe seu Nome e WhatsApp para agendarmos!`;
+          finalReply = `Seu orçamento para ${d.quantidade_comodos} cômodo(s) de ${d.nome_servico} ficou em ${d.valor_total_formatado}. Por favor, me informe seu Nome e WhatsApp para agendarmos a visita!`;
         } else if (toolActionMeta?.type === 'lead_salvo') {
           const leadData = toolActionMeta.data as Record<string, unknown>;
           const nomeCliente = String(leadData.nome || 'Cliente');
           const foneCliente = String(leadData.telefone || '');
-          fallbackText = `Perfeito, ${nomeCliente}! Seus dados foram encaminhados diretamente ao Telegram do pintor Valdir. Ele entrará em contato com você pelo seu WhatsApp (${foneCliente}) para combinar a data e o início dos trabalhos.`;
+          finalReply = `Perfeito, ${nomeCliente}! Seus dados foram encaminhados diretamente ao Telegram do pintor Valdir. Ele entrará em contato com você pelo seu WhatsApp (${foneCliente}) para combinar a data e o início dos trabalhos.`;
         }
-
-        return jsonResponse({
-          reply: fallbackText,
-          tool_action: toolActionMeta,
-        });
       }
-
-      const secondData = await secondResponse.json();
-      const finalReply = secondData.choices?.[0]?.message?.content || '';
 
       return jsonResponse({
         reply: finalReply,
@@ -547,9 +869,10 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Se o modelo não chamou tool, apenas retorna a resposta textual direta
+    // Se o modelo não chamou ferramentas, sanitizar e retornar a resposta direta
+    const cleanReply = sanitizeTextOutput(assistantMsg.content || '');
     return jsonResponse({
-      reply: assistantMsg.content || 'Como posso te ajudar com o orçamento da sua pintura hoje?',
+      reply: cleanReply || 'Como posso te ajudar com o orçamento da sua pintura hoje?',
       tool_action: null,
     });
   } catch (err: unknown) {

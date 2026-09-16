@@ -55,6 +55,36 @@
   // ==========================================================================
   // 2. RENDERIZAÇÃO DE MENSAGENS E CARDS
   // ==========================================================================
+
+  /**
+   * Sanitiza respostas da IA removendo blocos sintéticos de tool_call,
+   * tags <think> e vazamento de parâmetros no balão de texto.
+   */
+  function sanitizeAIText(str) {
+    if (!str) return '';
+
+    // Se o texto contiver padrão evidente de vazamento de parâmetros ou preâmbulo técnico observado em produção
+    if (/quantidade_comodos|Agora vou registrar/i.test(str)) {
+      return '';
+    }
+
+    return str
+      // Remove tags de raciocínio de modelos DeepSeek/Qwen
+      .replace(/<think>[\s\S]*?<\/think>/gi, '')
+      // Remove blocos de tool call sintéticos
+      .replace(/<tool_call>[\s\S]*?<\/tool_call>/gi, '')
+      // Remove tags sintéticas estilo <function=...>...</function>
+      .replace(/<function[=\s][\s\S]*?<\/function>/gi, '')
+      // Remove tags soltas sintéticas
+      .replace(/<\/?(?:tool_call|tool_response|function|think)[^>]*>/gi, '')
+      // Remove vazamento explícito de parâmetros (ex: quantidade_comodos> 5 540.00)
+      .replace(/(?:quantidade_comodos|comodos|tipo_servico|valor_total)\s*>\s*[\d.\s]+/gi, '')
+      .replace(/(?:salvar_lead|confirmar_agendamento|calcular_orcamento)\s*\([^\)]*\)/gi, '')
+      .replace(/\{"name":\s*"(?:salvar_lead|confirmar_agendamento|calcular_orcamento)"[\s\S]*?\}/gi, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
   function appendMessage(role, text, toolAction = null) {
     const isUser = role === 'user';
     const row = document.createElement('div');
@@ -70,9 +100,27 @@
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content';
 
+    // Se for mensagem da IA, sanitiza o texto para remover qualquer vazamento de tool calls ou parâmetros
+    let formattedText = text;
+    if (!isUser) {
+      formattedText = sanitizeAIText(text);
+      if (!formattedText.trim()) {
+        if (toolAction && toolAction.type === 'lead_salvo') {
+          const leadObj = (toolAction.data && toolAction.data.lead) || toolAction.data || {};
+          const nome = leadObj.nome || 'Cliente';
+          const fone = leadObj.telefone || '';
+          formattedText = `Perfeito, ${nome}! Seus dados foram encaminhados diretamente ao Telegram do pintor Valdir. Ele entrará em contato com você pelo seu WhatsApp (${fone}) para combinar a data e o início dos trabalhos.`;
+        } else if (toolAction && toolAction.type === 'orcamento_calculado') {
+          formattedText = `Aqui está a sua proposta oficial calculada conforme nossa tabela de preços:`;
+        } else {
+          formattedText = `Como posso te ajudar com o orçamento da sua pintura hoje?`;
+        }
+      }
+    }
+
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
-    bubble.innerHTML = formatMarkdown(text);
+    bubble.innerHTML = formatMarkdown(formattedText);
 
     contentDiv.appendChild(bubble);
 
@@ -101,11 +149,17 @@
   }
 
   /**
-   * Converte marcações simples de Markdown (negrito, itálico, listas, quebras)
+   * Converte marcações simples de Markdown com escape seguro de HTML
    */
   function formatMarkdown(str) {
     if (!str) return '';
-    return str
+    // Escapa caracteres HTML para evitar renderização de tags sintéticas indesejadas
+    const safe = str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+    return safe
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
       .replace(/\*(.*?)\*/g, '<em>$1</em>')
       .replace(/•\s*(.*)/g, '• $1')
@@ -339,7 +393,7 @@
         // Simulação inteligente de contingência caso esteja em modo Demo
         await handleOfflineDemo(text);
       } else {
-        await sendToSupabaseEdgeFunction();
+        await sendToSupabaseEdgeFunction(text);
       }
     } catch (err) {
       console.error('Erro na chamada da Edge Function:', err);
@@ -358,7 +412,7 @@
   /**
    * Envia o histórico de mensagens para a Edge Function /chat
    */
-  async function sendToSupabaseEdgeFunction() {
+  async function sendToSupabaseEdgeFunction(userMsgText = '') {
     const url = `${window.APP_CONFIG.SUPABASE_FUNCTIONS_URL}/chat`;
     const headers = {
       'Content-Type': 'application/json',
@@ -366,6 +420,7 @@
 
     if (window.APP_CONFIG.SUPABASE_ANON_KEY) {
       headers['Authorization'] = `Bearer ${window.APP_CONFIG.SUPABASE_ANON_KEY}`;
+      headers['apikey'] = window.APP_CONFIG.SUPABASE_ANON_KEY;
     }
 
     const response = await fetch(url, {
@@ -373,6 +428,9 @@
       headers: headers,
       body: JSON.stringify({
         messages: conversationHistory,
+        context: {
+          ultimo_orcamento: localContext.ultimoOrcamento,
+        },
       }),
     });
 
@@ -382,13 +440,68 @@
     }
 
     const data = await response.json();
-    const replyText = data.reply || 'Desculpe, não consegui processar sua mensagem.';
-    const toolAction = data.tool_action || null;
+    let replyText = data.reply || 'Desculpe, não consegui processar sua mensagem.';
+    let toolAction = data.tool_action || null;
 
-    // Guarda histórico
-    conversationHistory.push({ role: 'assistant', content: replyText });
+    // Se a ferramenta retornou cálculo de orçamento, armazena no estado local
+    if (toolAction && toolAction.type === 'orcamento_calculado') {
+      localContext.ultimoOrcamento = toolAction.data;
+    }
 
-    // Renderiza a resposta e os cards correspondentes
+    // Heurística de proteção no front-end:
+    // Se a IA não retornou tool_action de lead_salvo, mas o usuário enviou contato (WhatsApp)
+    // e havia um orçamento recente, dispara persistência do lead e renderiza o card azul
+    const phoneMatch = userMsgText.match(/\b(?:\+?55\s?)?(?:\(?\d{2}\)?[\s-]?)?\d{4,5}[-\s]?\d{4}\b/);
+    const detectouVazamentoNoReply = /quantidade_comodos|Agora vou registrar/i.test(data.reply || '');
+    if ((!toolAction || toolAction.type !== 'lead_salvo') && (phoneMatch || detectouVazamentoNoReply) && localContext.ultimoOrcamento) {
+      console.log('[frontend] Disparando persistência do lead e Webhook Telegram em contingência...');
+      const foneFinal = phoneMatch
+        ? phoneMatch[0]
+        : (data.reply && data.reply.match(/\b(?:\+?55\s?)?(?:\(?\d{2}\)?[\s-]?)?\d{4,5}[-\s]?\d{4}\b/)?.[0]) || '';
+      const rawNome = userMsgText
+        .replace(foneFinal, '')
+        .replace(/\b(meu|nome|é|whatsapp|fone|tel|e|sou|o|a)\b/gi, ' ')
+        .replace(/[,.:;\-_]/g, ' ')
+        .trim();
+      const nomeCliente = rawNome.length >= 2 ? rawNome.split(/\s+/)[0] : 'Cliente';
+
+      const leadPayload = {
+        nome: nomeCliente,
+        telefone: phoneMatch[0],
+        tipo_servico: localContext.ultimoOrcamento.tipo_servico || 'parede_lisa',
+        quantidade_comodos: Number(localContext.ultimoOrcamento.quantidade_comodos) || 1,
+        valor_calculado:
+          Number(localContext.ultimoOrcamento.valor_total || localContext.ultimoOrcamento.valor_final) || 120.0,
+      };
+
+      // Disparo assíncrono para o endpoint salvar-lead (garantindo inserção no Supabase e Webhook Telegram)
+      fetch(`${window.APP_CONFIG.SUPABASE_FUNCTIONS_URL}/salvar-lead`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(window.APP_CONFIG.SUPABASE_ANON_KEY
+            ? {
+                Authorization: `Bearer ${window.APP_CONFIG.SUPABASE_ANON_KEY}`,
+                apikey: window.APP_CONFIG.SUPABASE_ANON_KEY,
+              }
+            : {}),
+        },
+        body: JSON.stringify(leadPayload),
+      }).catch((e) => console.warn('[frontend] Falha no disparo de contingência do salvar-lead:', e));
+
+      toolAction = {
+        type: 'lead_salvo',
+        data: leadPayload,
+      };
+      localContext.ultimoOrcamento = null;
+    } else if (toolAction && toolAction.type === 'lead_salvo') {
+      localContext.ultimoOrcamento = null;
+    }
+
+    // Guarda histórico com texto sanitizado
+    conversationHistory.push({ role: 'assistant', content: sanitizeAIText(replyText) });
+
+    // Renderiza a resposta e os cards correspondentes (incluindo o card azul)
     appendMessage('assistant', replyText, toolAction);
   }
 
@@ -406,9 +519,12 @@
     // 1. Caso o usuário informe nome e telefone (salvar lead)
     const phoneMatch = text.match(/\b(?:\+?55\s?)?(?:\(?\d{2}\)?[\s-]?)?\d{4,5}[-\s]?\d{4}\b/);
     if (phoneMatch && localContext.ultimoOrcamento) {
-      const telefone = phoneMatch[0];
-      const nomeMatch = text.replace(phoneMatch[0], '').replace(/(meu|nome|é|whatsapp|fone|e|sou|o)/gi, '').trim();
-      const nome = nomeMatch.length > 1 ? nomeMatch : 'Cliente';
+      const rawNome = text
+        .replace(phoneMatch[0], '')
+        .replace(/\b(meu|nome|é|whatsapp|fone|tel|e|sou|o|a)\b/gi, ' ')
+        .replace(/[,.:;\-_]/g, ' ')
+        .trim();
+      const nome = rawNome.length >= 2 ? rawNome.split(/\s+/)[0] : 'Cliente';
 
       const leadData = {
         nome: nome,
