@@ -32,6 +32,28 @@
         <p class="login-subtitle">Painel de Gestão de Orçamentos</p>
       </div>
 
+      <!-- ABAS DE NAVEGAÇÃO: ENTRAR / CADASTRAR -->
+      <div class="auth-tabs" role="tablist">
+        <button type="button" id="tab-login" class="auth-tab active" role="tab" aria-selected="true" aria-controls="login-form">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
+            <polyline points="10 17 15 12 10 7"></polyline>
+            <line x1="15" y1="12" x2="3" y2="12"></line>
+          </svg>
+          <span>Entrar</span>
+        </button>
+        <button type="button" id="tab-register" class="auth-tab" role="tab" aria-selected="false" aria-controls="register-form">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+            <circle cx="8.5" cy="7" r="4"></circle>
+            <line x1="20" y1="8" x2="20" y2="14"></line>
+            <line x1="23" y1="11" x2="17" y2="11"></line>
+          </svg>
+          <span>Cadastrar Novo Usuário</span>
+        </button>
+      </div>
+
+      <!-- 1.1 FORMULÁRIO DE LOGIN -->
       <form id="login-form" class="login-form" novalidate>
         <!-- MENSAGEM DE ERRO COM BORDA NÍTIDA DE 1PX E FUNDO VERMELHO CLARO -->
         <div id="login-error" class="login-error-box hidden" role="alert">
@@ -40,7 +62,7 @@
             <line x1="12" y1="8" x2="12" y2="12"></line>
             <line x1="12" y1="16" x2="12.01" y2="16"></line>
           </svg>
-          <span>Credenciais inválidas. Verifique os dados e tente novamente.</span>
+          <span id="login-error-text">Credenciais inválidas. Verifique os dados e tente novamente.</span>
         </div>
 
         <div class="form-group">
@@ -76,9 +98,101 @@
         </button>
 
         <div class="login-card-footer">
-          <a href="index.html" class="link-back-chat">
-            ← Voltar ao Terminal de Atendimento
-          </a>
+          <button type="button" id="btn-goto-register" class="link-switch-tab">
+            Novo operador? <strong>Cadastrar novo usuário</strong>
+          </button>
+          <div style="margin-top: 6px;">
+            <a href="index.html" class="link-back-chat">
+              ← Voltar ao Terminal de Atendimento
+            </a>
+          </div>
+        </div>
+      </form>
+
+      <!-- 1.2 FORMULÁRIO DE CADASTRO DE NOVO USUÁRIO -->
+      <form id="register-form" class="login-form hidden" novalidate>
+        <!-- FEEDBACK VISUAL DE CADASTRO -->
+        <div id="register-feedback" class="login-feedback-box hidden" role="alert">
+          <span id="register-feedback-icon"></span>
+          <span id="register-feedback-msg"></span>
+        </div>
+
+        <div class="form-group">
+          <label for="reg-nome" class="form-label">Nome Completo</label>
+          <input
+            type="text"
+            id="reg-nome"
+            class="form-input"
+            placeholder="Ex: Carlos Ferreira"
+            autocomplete="name"
+            required
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="reg-username" class="form-label">Nome de Usuário (Login)</label>
+          <input
+            type="text"
+            id="reg-username"
+            class="form-input font-mono"
+            placeholder="ex: carlosf"
+            autocomplete="username"
+            required
+          />
+          <small class="form-help-text">Letras, números ou underline (mínimo 3 caracteres)</small>
+        </div>
+
+        <div class="form-group">
+          <label for="reg-cargo" class="form-label">Perfil de Acesso</label>
+          <select id="reg-cargo" class="form-input form-select">
+            <option value="Administrador">Administrador (Acesso completo)</option>
+            <option value="Atendente">Atendente (Gestão de Leads)</option>
+            <option value="Pintor">Pintor / Operacional</option>
+          </select>
+        </div>
+
+        <div class="form-row-2col">
+          <div class="form-group">
+            <label for="reg-password" class="form-label">Senha</label>
+            <input
+              type="password"
+              id="reg-password"
+              class="form-input"
+              placeholder="Mín. 4 dígitos"
+              autocomplete="new-password"
+              required
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="reg-password-confirm" class="form-label">Confirmar Senha</label>
+            <input
+              type="password"
+              id="reg-password-confirm"
+              class="form-input"
+              placeholder="Repita a senha"
+              autocomplete="new-password"
+              required
+            />
+          </div>
+        </div>
+
+        <button type="submit" id="btn-register-submit" class="btn-login-action btn-register-action">
+          <span>Finalizar Cadastro</span>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+        </button>
+
+        <div class="login-card-footer">
+          <button type="button" id="btn-goto-login" class="link-switch-tab">
+            ← Já possui cadastro? <strong>Fazer login</strong>
+          </button>
+          <div style="margin-top: 6px;">
+            <a href="index.html" class="link-back-chat">
+              ← Voltar ao Terminal de Atendimento
+            </a>
+          </div>
         </div>
       </form>
     </div>
@@ -117,6 +231,31 @@
           </svg>
           <span id="current-date-badge">--/--/----</span>
         </div>
+
+        <!-- INDICADOR DO USUÁRIO LOGADO -->
+        <div class="admin-user-pill" id="admin-user-pill" title="Usuário Ativo na Sessão">
+          <div class="admin-user-avatar">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+              <circle cx="12" cy="7" r="4"></circle>
+            </svg>
+          </div>
+          <div class="admin-user-details">
+            <span id="active-user-name" class="active-user-name">Admin</span>
+            <span id="active-user-role" class="active-user-role">Master</span>
+          </div>
+        </div>
+
+        <!-- BOTÃO PARA ABRIR MODAL DE GESTÃO DE USUÁRIOS -->
+        <button id="btn-open-users-modal" class="btn-users-manage" title="Gerenciar e cadastrar usuários">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+            <circle cx="9" cy="7" r="4"></circle>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+          </svg>
+          <span>Usuários</span>
+        </button>
 
         <button id="btn-refresh" class="btn-refresh-data" title="Recarregar lista do Supabase">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
@@ -283,6 +422,129 @@
       </div>
     </footer>
 
+  <!-- ====================================================================
+       3. MODAL DE GESTÃO E CADASTRO DE USUÁRIOS (INTERNO)
+       ==================================================================== -->
+  <div id="users-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="users-modal-title">
+    <div class="modal-card modal-card-lg">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <div class="modal-icon-badge">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+              <circle cx="9" cy="7" r="4"></circle>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+            </svg>
+          </div>
+          <div>
+            <h3 id="users-modal-title">Gestão de Usuários & Acessos</h3>
+            <p class="modal-subtitle">Controle de operadores autorizados a visualizar orçamentos</p>
+          </div>
+        </div>
+        <button id="btn-close-users-modal" class="btn-close" aria-label="Fechar modal">&times;</button>
+      </div>
+
+      <!-- ABAS DO MODAL: LISTAGEM / NOVO USUÁRIO -->
+      <div class="modal-subnav">
+        <button type="button" id="modal-tab-list" class="modal-subnav-tab active">
+          Usuários Cadastrados (<span id="modal-users-count">0</span>)
+        </button>
+        <button type="button" id="modal-tab-add" class="modal-subnav-tab">
+          + Cadastrar Novo Usuário
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <!-- SEÇÃO 1: TABELA DE USUÁRIOS CADASTRADOS -->
+        <div id="modal-sec-list" class="modal-sec">
+          <div class="modal-table-wrap">
+            <table class="corporate-table compact-table">
+              <thead>
+                <tr>
+                  <th>Usuário</th>
+                  <th>Nome Completo</th>
+                  <th>Perfil</th>
+                  <th>Criado Em</th>
+                  <th style="text-align: right;">Ações</th>
+                </tr>
+              </thead>
+              <tbody id="users-tbody">
+                <!-- Preenchido via admin.js -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- SEÇÃO 2: CADASTRO DE NOVO USUÁRIO NO MODAL -->
+        <div id="modal-sec-add" class="modal-sec hidden">
+          <form id="modal-user-form" class="modal-user-form" novalidate>
+            <div id="modal-user-feedback" class="login-feedback-box hidden" role="alert">
+              <span id="modal-user-feedback-icon"></span>
+              <span id="modal-user-feedback-msg"></span>
+            </div>
+
+            <div class="form-row-2col">
+              <div class="form-group">
+                <label for="modal-reg-nome" class="form-label">Nome Completo</label>
+                <input
+                  type="text"
+                  id="modal-reg-nome"
+                  class="form-input"
+                  placeholder="Ex: Roberto Lima"
+                  required
+                />
+              </div>
+
+              <div class="form-group">
+                <label for="modal-reg-username" class="form-label">Nome de Usuário (Login)</label>
+                <input
+                  type="text"
+                  id="modal-reg-username"
+                  class="form-input font-mono"
+                  placeholder="ex: roberto"
+                  required
+                />
+              </div>
+            </div>
+
+            <div class="form-row-2col">
+              <div class="form-group">
+                <label for="modal-reg-cargo" class="form-label">Perfil de Acesso</label>
+                <select id="modal-reg-cargo" class="form-input form-select">
+                  <option value="Administrador">Administrador (Total)</option>
+                  <option value="Atendente">Atendente (Leads)</option>
+                  <option value="Pintor">Pintor (Operacional)</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="modal-reg-password" class="form-label">Senha Inicial</label>
+                <input
+                  type="password"
+                  id="modal-reg-password"
+                  class="form-input"
+                  placeholder="Mínimo 4 caracteres"
+                  required
+                />
+              </div>
+            </div>
+
+            <div class="modal-actions-bar">
+              <button type="button" id="btn-cancel-add-user" class="btn-secondary-action">
+                Cancelar
+              </button>
+              <button type="submit" class="btn-login-action btn-compact">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+                <span>Cadastrar Usuário</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Scripts -->
