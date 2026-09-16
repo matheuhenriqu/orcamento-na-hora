@@ -1,13 +1,22 @@
 // ============================================================================
 // PROJETO: O Orçamento na Hora (SENAI-SP)
-// JAVASCRIPT DO PAINEL ADMINISTRATIVO (admin.js)
+// JAVASCRIPT DO PAINEL ADMINISTRATIVO COM AUTENTICAÇÃO (admin.js)
 // PADRÃO HIGH-CONTRAST MODERN SAAS / SWISS INDUSTRIAL
 // ============================================================================
 
 (function () {
   'use strict';
 
-  // Elementos do DOM
+  // Elementos de Autenticação / Gate
+  const loginGate = document.getElementById('login-gate');
+  const adminDashboard = document.getElementById('admin-dashboard');
+  const loginForm = document.getElementById('login-form');
+  const loginUsername = document.getElementById('login-username');
+  const loginPassword = document.getElementById('login-password');
+  const loginError = document.getElementById('login-error');
+  const btnLogout = document.getElementById('btn-logout');
+
+  // Elementos do Dashboard
   const leadsTbody = document.getElementById('leads-tbody');
   const emptyState = document.getElementById('empty-state');
   const leadsCounter = document.getElementById('leads-counter');
@@ -35,12 +44,65 @@
     });
   }
 
-  /**
-   * Busca leads da Edge Function e mescla com leads em cache local
-   */
+  // ==========================================================================
+  // 1. FLUXO DE AUTENTICAÇÃO (LOGIN GATE & SESSÃO)
+  // ==========================================================================
+  function estaAutenticado() {
+    return sessionStorage.getItem('admin_auth') === 'true';
+  }
+
+  function verificarAutenticacao() {
+    if (estaAutenticado()) {
+      loginGate.classList.add('hidden');
+      adminDashboard.classList.remove('hidden');
+      carregarLeads();
+    } else {
+      adminDashboard.classList.add('hidden');
+      loginGate.classList.remove('hidden');
+      if (loginUsername) {
+        setTimeout(() => loginUsername.focus(), 50);
+      }
+    }
+  }
+
+  if (loginForm) {
+    loginForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+      const usuario = (loginUsername.value || '').trim();
+      const senha = (loginPassword.value || '').trim();
+
+      // Credenciais oficiais: admin / admin
+      if (usuario === 'admin' && senha === 'admin') {
+        loginError.classList.add('hidden');
+        sessionStorage.setItem('admin_auth', 'true');
+        loginPassword.value = '';
+        verificarAutenticacao();
+      } else {
+        loginError.classList.remove('hidden');
+        loginPassword.value = '';
+        loginPassword.focus();
+      }
+    });
+  }
+
+  if (btnLogout) {
+    btnLogout.addEventListener('click', function () {
+      sessionStorage.removeItem('admin_auth');
+      if (loginUsername) loginUsername.value = '';
+      if (loginPassword) loginPassword.value = '';
+      loginError.classList.add('hidden');
+      verificarAutenticacao();
+    });
+  }
+
+  // ==========================================================================
+  // 2. BUSCA E PROCESSAMENTO DE LEADS
+  // ==========================================================================
   async function carregarLeads() {
+    if (!estaAutenticado()) return;
+
     leadsCounter.textContent = 'Sincronizando com Supabase...';
-    btnRefresh.classList.add('loading');
+    if (btnRefresh) btnRefresh.classList.add('loading');
     let remoteLeads = [];
 
     try {
@@ -53,7 +115,7 @@
     } catch (err) {
       console.warn('Não foi possível conectar ao endpoint remoto de leads:', err);
     } finally {
-      btnRefresh.classList.remove('loading');
+      if (btnRefresh) btnRefresh.classList.remove('loading');
     }
 
     // Mesclar com leads em cache do localStorage (para contingência e sincronia instantânea)
@@ -88,27 +150,31 @@
    */
   function atualizarKpis(leads) {
     const total = leads.length;
-    kpiTotalLeads.textContent = total;
+    if (kpiTotalLeads) kpiTotalLeads.textContent = total;
 
     if (total === 0) {
-      kpiTotalFaturamento.textContent = 'R$ 0,00';
-      kpiTicketMedio.textContent = 'R$ 0,00';
-      kpiTopServico.textContent = 'Nenhum lead';
+      if (kpiTotalFaturamento) kpiTotalFaturamento.textContent = 'R$ 0,00';
+      if (kpiTicketMedio) kpiTicketMedio.textContent = 'R$ 0,00';
+      if (kpiTopServico) kpiTopServico.textContent = 'Nenhum lead';
       return;
     }
 
     const faturamento = leads.reduce((acc, lead) => acc + (Number(lead.valor_calculado) || 0), 0);
     const media = faturamento / total;
 
-    kpiTotalFaturamento.textContent = faturamento.toLocaleString('pt-BR', {
-      style: 'currency',
-      currency: 'BRL',
-    });
+    if (kpiTotalFaturamento) {
+      kpiTotalFaturamento.textContent = faturamento.toLocaleString('pt-BR', {
+        style: 'currency',
+        currency: 'BRL',
+      });
+    }
 
-    kpiTicketMedio.textContent = media.toLocaleString('pt-BR', {
-      style: 'currency',
-      currency: 'BRL',
-    });
+    if (kpiTicketMedio) {
+      kpiTicketMedio.textContent = media.toLocaleString('pt-BR', {
+        style: 'currency',
+        currency: 'BRL',
+      });
+    }
 
     // Contagem do serviço mais solicitado
     const servicoCount = {};
@@ -133,14 +199,16 @@
       }
     }
 
-    kpiTopServico.textContent = `${topServico} (${maxQtd})`;
+    if (kpiTopServico) {
+      kpiTopServico.textContent = `${topServico} (${maxQtd})`;
+    }
   }
 
   /**
    * Renderiza a tabela aplicando busca e filtros
    */
   function renderizarTabela() {
-    const busca = (searchInput.value || '').toLowerCase().trim();
+    const busca = (searchInput && searchInput.value || '').toLowerCase().trim();
     const filtro = filterService ? filterService.value : 'todos';
 
     const leadsFiltrados = allLeads.filter((lead) => {
@@ -155,15 +223,19 @@
       return matchBusca && matchFiltro;
     });
 
-    leadsCounter.textContent = `${leadsFiltrados.length} ${leadsFiltrados.length === 1 ? 'registro' : 'registros'}`;
+    if (leadsCounter) {
+      leadsCounter.textContent = `${leadsFiltrados.length} ${leadsFiltrados.length === 1 ? 'registro' : 'registros'}`;
+    }
+
+    if (!leadsTbody) return;
     leadsTbody.innerHTML = '';
 
     if (leadsFiltrados.length === 0) {
-      emptyState.classList.remove('hidden');
+      if (emptyState) emptyState.classList.remove('hidden');
       return;
     }
 
-    emptyState.classList.add('hidden');
+    if (emptyState) emptyState.classList.add('hidden');
 
     leadsFiltrados.forEach((lead) => {
       const tr = document.createElement('tr');
@@ -261,13 +333,11 @@
     });
   }
 
-  // Listeners
-  btnRefresh.addEventListener('click', carregarLeads);
-  searchInput.addEventListener('input', renderizarTabela);
-  if (filterService) {
-    filterService.addEventListener('change', renderizarTabela);
-  }
+  // Listeners do Dashboard
+  if (btnRefresh) btnRefresh.addEventListener('click', carregarLeads);
+  if (searchInput) searchInput.addEventListener('input', renderizarTabela);
+  if (filterService) filterService.addEventListener('change', renderizarTabela);
 
-  // Carga inicial
-  carregarLeads();
+  // Inicialização: checa autenticação imediatamente
+  verificarAutenticacao();
 })();
