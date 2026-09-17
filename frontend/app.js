@@ -23,6 +23,14 @@
   const inputFunctionsUrl = document.getElementById('input-functions-url');
   const inputAnonKey = document.getElementById('input-anon-key');
   const checkDemoMode = document.getElementById('check-demo-mode');
+  const charCounter = document.getElementById('char-counter');
+  const btnCancelAi = document.getElementById('btn-cancel-ai');
+
+  // Controle assíncrono e cancelamento (C5)
+  let abortController = null;
+  let typingTimeoutId = null;
+  let lastUserMessageText = '';
+  let lastFocusedElement = null;
 
   // Histórico de Mensagens no formato OpenAI/Groq
   let conversationHistory = [];
@@ -31,6 +39,153 @@
   const localContext = {
     ultimoOrcamento: null,
   };
+
+  // ==========================================================================
+  // HELPERS DE CONTRATO PREVISÍVEL (C1) & TOASTS/MODAIS ACESSÍVEIS (M1)
+  // ==========================================================================
+
+  /**
+   * Helper parseChat(res) para contrato previsível { ok: true, data } / { ok: false, error }
+   */
+  function parseChat(res) {
+    if (!res) return { ok: false, reply: '', toolAction: null };
+
+    // Novo contrato padronizado: { ok: true, data: { reply, toolAction } }
+    if (res.ok === true && res.data) {
+      return {
+        ok: true,
+        reply: res.data.reply || '',
+        toolAction: res.data.toolAction || res.data.tool_action || null,
+        meta: res.meta,
+      };
+    }
+
+    // Compatibilidade com aliases legados
+    if (res.reply !== undefined || res.tool_action !== undefined || res.orcamento !== undefined || res.lead !== undefined) {
+      return {
+        ok: true,
+        reply: res.reply || '',
+        toolAction: res.tool_action || (res.orcamento ? { type: 'orcamento_calculado', data: res.orcamento } : null),
+        meta: res.meta,
+      };
+    }
+
+    // Contrato de erro: { ok: false, error: { code, message, action, requestId } }
+    if (res.ok === false && res.error) {
+      return {
+        ok: false,
+        error: res.error,
+      };
+    }
+
+    return {
+      ok: false,
+      error: {
+        code: 'UNKNOWN_ERROR',
+        message: 'Resposta desconhecida recebida do servidor.',
+        action: 'Tente reenviar a mensagem.',
+      },
+    };
+  }
+
+  /**
+   * Sistema de Toasts Acessíveis (WCAG 2.2 AA)
+   */
+  function showToast(type, msg, action = null) {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+
+    const item = document.createElement('div');
+    item.className = `toast-item toast-${type || 'info'}`;
+    item.setAttribute('role', type === 'error' ? 'alert' : 'status');
+
+    const textSpan = document.createElement('span');
+    textSpan.textContent = msg;
+    item.appendChild(textSpan);
+
+    if (action && action.label && typeof action.onClick === 'function') {
+      const actionBtn = document.createElement('button');
+      actionBtn.type = 'button';
+      actionBtn.className = 'toast-action-btn';
+      actionBtn.textContent = action.label;
+      actionBtn.addEventListener('click', () => {
+        action.onClick();
+        item.remove();
+      });
+      item.appendChild(actionBtn);
+    }
+
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'toast-close-btn';
+    closeBtn.setAttribute('aria-label', 'Fechar notificação');
+    closeBtn.innerHTML = '&times;';
+    closeBtn.addEventListener('click', () => item.remove());
+    item.appendChild(closeBtn);
+
+    container.appendChild(item);
+
+    setTimeout(() => {
+      if (item.parentNode) item.remove();
+    }, 5000);
+  }
+
+  /**
+   * Modal de Confirmação Acessível (substitui window.confirm e window.alert)
+   */
+  function confirmModal({ title = 'Confirmação', desc = 'Deseja continuar?', danger = false } = {}) {
+    return new Promise((resolve) => {
+      const modal = document.getElementById('confirm-modal');
+      if (!modal) {
+        resolve(true);
+        return;
+      }
+
+      const titleEl = document.getElementById('confirm-modal-title');
+      const descEl = document.getElementById('confirm-modal-desc');
+      const btnCancel = document.getElementById('btn-confirm-cancel');
+      const btnConfirm = document.getElementById('btn-confirm-action');
+      const btnClose = document.getElementById('btn-confirm-close');
+
+      if (titleEl) titleEl.textContent = title;
+      if (descEl) descEl.textContent = desc;
+
+      if (btnConfirm) {
+        btnConfirm.className = danger ? 'btn-danger-action' : 'btn-primary';
+      }
+
+      const prevFocus = document.activeElement;
+      modal.classList.remove('hidden');
+      if (btnConfirm) btnConfirm.focus();
+
+      function cleanup(result) {
+        modal.classList.add('hidden');
+        document.removeEventListener('keydown', handleKeydown);
+        if (prevFocus && typeof prevFocus.focus === 'function') prevFocus.focus();
+        resolve(result);
+      }
+
+      function handleKeydown(e) {
+        if (e.key === 'Escape') {
+          cleanup(false);
+        }
+      }
+
+      document.addEventListener('keydown', handleKeydown);
+
+      if (btnCancel) btnCancel.onclick = () => cleanup(false);
+      if (btnClose) btnClose.onclick = () => cleanup(false);
+      if (btnConfirm) btnConfirm.onclick = () => cleanup(true);
+      modal.onclick = (e) => {
+        if (e.target === modal) cleanup(false);
+      };
+    });
+  }
+
+  // Exportar helpers para escopo global para testes e verificações
+  window.parseChat = parseChat;
+  window.showToast = showToast;
+  window.confirmModal = confirmModal;
 
   // ==========================================================================
   // 1. INICIALIZAÇÃO DO CHAT
@@ -135,11 +290,16 @@
       }
     }
 
-    const timeSpan = document.createElement('span');
-    timeSpan.className = 'message-time';
     const agora = new Date();
-    timeSpan.textContent = agora.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    contentDiv.appendChild(timeSpan);
+    const timeStr = agora.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const timeEl = document.createElement('time');
+    timeEl.className = 'message-time';
+    timeEl.dateTime = agora.toISOString();
+    timeEl.textContent = timeStr;
+
+    // Acessibilidade: anuncia remetente e horário no leitor de tela (C4)
+    row.setAttribute('aria-label', `${isUser ? 'Você' : 'Valdir'} às ${timeStr}`);
+    contentDiv.appendChild(timeEl);
 
     row.appendChild(avatar);
     row.appendChild(contentDiv);
@@ -364,23 +524,200 @@
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
   }
 
+  /**
+   * Renderiza card de erro amigável no chat com retry e ação corretiva (C2)
+   */
+  function renderChatErrorCard({ status, code, message, technicalDetails, originalText }) {
+    const row = document.createElement('div');
+    row.className = 'message-row bot-row error-row';
+    row.setAttribute('role', 'alert');
+    row.setAttribute('aria-label', 'Erro no processamento');
+
+    const avatar = document.createElement('div');
+    avatar.className = 'avatar-small avatar-bot';
+    avatar.setAttribute('aria-hidden', 'true');
+    avatar.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`;
+
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'message-content';
+
+    const card = document.createElement('div');
+    card.className = 'chat-error-card';
+
+    let title = 'Erro no atendimento';
+    let friendlyMsg = message;
+    const is400 = status === 400 || code === 'VALIDATION_ERROR';
+    const is429 = status === 429 || code === 'RATE_LIMITED';
+    const is5xx = (status >= 500 && status < 600) || code === 'GROQ_UNAVAILABLE' || code === 'INTERNAL_ERROR';
+    const isOffline = status === 0 || code === 'NETWORK_OFFLINE' || code === 'TypeError';
+    const isCancelled = code === 'USER_CANCELLED';
+    const isTimeout = code === 'TIMEOUT_20S';
+
+    if (is400) {
+      title = 'Não entendi sua solicitação';
+      friendlyMsg = 'Não entendi. Exemplo: "2 cômodos parede lisa". Você pode clicar no exemplo abaixo:';
+    } else if (is429) {
+      title = 'Muitas mensagens';
+      friendlyMsg = 'Muitas mensagens. Aguarde 30s para enviar uma nova pergunta.';
+    } else if (is5xx) {
+      title = 'IA instável';
+      friendlyMsg = 'O serviço do assistente de inteligência artificial está temporariamente instável. Tente reenviar agora.';
+    } else if (isCancelled) {
+      title = 'Atendimento cancelado';
+      friendlyMsg = 'O cálculo ou resposta foi cancelado por você.';
+    } else if (isTimeout) {
+      title = 'Tempo limite excedido';
+      friendlyMsg = 'O assistente demorou mais de 20s para responder. Verifique sua conexão e tente novamente.';
+    } else if (isOffline) {
+      title = 'Sem internet';
+      friendlyMsg = 'Sem conexão com a internet ou servidor inacessível. Verifique sua rede e tente novamente.';
+    }
+
+    let html = `
+      <div class="chat-error-title">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+        <span>${escapeHtml(title)}</span>
+      </div>
+      <p class="chat-error-msg">${escapeHtml(friendlyMsg)}</p>
+      <div class="chat-error-actions">
+    `;
+
+    if (is400) {
+      html += `
+        <button type="button" class="chat-error-example-chip" data-example="2 cômodos parede lisa">
+          💡 "2 cômodos parede lisa"
+        </button>
+      `;
+    }
+
+    if (is429) {
+      html += `
+        <button type="button" class="btn-retry-chat" id="btn-retry-429" disabled>
+          <span class="countdown-label">Aguarde 30s...</span>
+        </button>
+      `;
+    } else {
+      html += `
+        <button type="button" class="btn-retry-chat btn-retry-action">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+          <span>Tentar de novo</span>
+        </button>
+      `;
+    }
+    html += `</div>`;
+
+    if (technicalDetails) {
+      html += `
+        <details class="chat-error-details">
+          <summary>Detalhes técnicos</summary>
+          <pre>${escapeHtml(technicalDetails)}</pre>
+        </details>
+      `;
+    }
+
+    card.innerHTML = html;
+    contentDiv.appendChild(card);
+    row.appendChild(avatar);
+    row.appendChild(contentDiv);
+    messagesContainer.appendChild(row);
+    scrollToBottom();
+
+    // Contador regressivo para 429 (C2)
+    if (is429) {
+      const retryBtn = card.querySelector('#btn-retry-429');
+      let countdown = 30;
+      const timer = setInterval(() => {
+        countdown--;
+        if (countdown > 0) {
+          const lbl = retryBtn?.querySelector('.countdown-label');
+          if (lbl) lbl.textContent = `Aguarde ${countdown}s...`;
+        } else {
+          clearInterval(timer);
+          if (retryBtn) {
+            retryBtn.disabled = false;
+            retryBtn.innerHTML = `
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+              <span>Tentar de novo</span>
+            `;
+            retryBtn.addEventListener('click', () => {
+              row.remove();
+              reenviarMensagem(originalText);
+            });
+          }
+        }
+      }, 1000);
+    }
+
+    // Botão de retry padrão (C2)
+    const retryBtn = card.querySelector('.btn-retry-action');
+    if (retryBtn) {
+      retryBtn.addEventListener('click', () => {
+        row.remove();
+        reenviarMensagem(originalText);
+      });
+    }
+
+    // Chip de exemplo clicável (400)
+    const exampleChip = card.querySelector('.chat-error-example-chip');
+    if (exampleChip) {
+      exampleChip.addEventListener('click', () => {
+        const sampleText = exampleChip.getAttribute('data-example');
+        row.remove();
+        reenviarMensagem(sampleText);
+      });
+    }
+  }
+
+  function reenviarMensagem(text) {
+    if (!text) return;
+    userInput.value = text;
+    chatForm.dispatchEvent(new Event('submit', { cancelable: true }));
+  }
+
+  /**
+   * Controle de digitação cancelável com timeout de 20s (C5)
+   */
   function setTyping(isTyping) {
     if (isTyping) {
       typingIndicator.classList.remove('hidden');
+      typingIndicator.setAttribute('aria-busy', 'true');
       userInput.disabled = true;
       userInput.setAttribute('data-prev-placeholder', userInput.placeholder);
       userInput.placeholder = "Valdir está digitando...";
       btnSend.disabled = true;
       btnSend.classList.add('loading');
       scrollToBottom();
+
+      // Timeout preventivo de 20s para liberar UI (C5)
+      if (typingTimeoutId) clearTimeout(typingTimeoutId);
+      typingTimeoutId = setTimeout(() => {
+        if (abortController) {
+          abortController.abort(new Error('TIMEOUT_20S'));
+        }
+      }, 20000);
     } else {
+      if (typingTimeoutId) {
+        clearTimeout(typingTimeoutId);
+        typingTimeoutId = null;
+      }
+      abortController = null;
       typingIndicator.classList.add('hidden');
+      typingIndicator.setAttribute('aria-busy', 'false');
       userInput.disabled = false;
       userInput.placeholder = userInput.getAttribute('data-prev-placeholder') || "Digite o serviço e a quantidade de cômodos...";
       btnSend.disabled = false;
       btnSend.classList.remove('loading');
       userInput.focus();
     }
+  }
+
+  // Botão de cancelamento da IA (C5)
+  if (btnCancelAi) {
+    btnCancelAi.addEventListener('click', () => {
+      if (abortController) {
+        abortController.abort(new Error('USER_CANCELLED'));
+      }
+    });
   }
 
   // ==========================================================================
@@ -391,41 +728,73 @@
     const text = userInput.value.trim();
     if (!text) return;
 
-    // Adiciona a mensagem do usuário na tela e no histórico
+    lastUserMessageText = text;
     appendMessage('user', text);
     conversationHistory.push({ role: 'user', content: text });
     userInput.value = '';
+    if (charCounter) {
+      charCounter.textContent = '0/140';
+      charCounter.className = 'char-counter';
+    }
 
     setTyping(true);
 
     try {
       if (window.APP_CONFIG.DEMO_MODE) {
-        // Simulação inteligente de contingência caso esteja em modo Demo
         await handleOfflineDemo(text);
       } else {
         await sendToSupabaseEdgeFunction(text);
       }
     } catch (err) {
       console.error('Erro na chamada da Edge Function:', err);
-      // Caso a requisição ao backend falhe por falta de configuração ou rede,
-      // fallback gracioso explicando a situação e oferecendo ajuda
-      appendMessage(
-        'assistant',
-        `⚠️ **Nota de Conexão:** Não foi possível conectar ao endpoint das Edge Functions em \`${window.APP_CONFIG.SUPABASE_FUNCTIONS_URL}\`.\n\n` +
-        `Para configurar sua URL do Supabase ou testar em modo demonstração offline, clique no botão de engrenagem ⚙️ no canto superior direito!`
-      );
+      let status = 0;
+      let code = 'NETWORK_OFFLINE';
+      let message = err.message || 'Erro ao processar mensagem.';
+      let technicalDetails = `URL: ${window.APP_CONFIG.SUPABASE_FUNCTIONS_URL}/chat\nErro: ${err.message}`;
+
+      if (err.name === 'AbortError' || err.message === 'USER_CANCELLED' || err.message === 'TIMEOUT_20S') {
+        if (err.message === 'TIMEOUT_20S' || (err.message && err.message.includes('TIMEOUT_20S'))) {
+          code = 'TIMEOUT_20S';
+          message = 'O assistente demorou mais de 20s para responder.';
+        } else {
+          code = 'USER_CANCELLED';
+          message = 'Atendimento cancelado pelo usuário.';
+        }
+      } else if (err.status) {
+        status = err.status;
+        code = err.code || (status === 400 ? 'VALIDATION_ERROR' : status === 429 ? 'RATE_LIMITED' : 'INTERNAL_ERROR');
+        message = err.friendlyMessage || err.message;
+        technicalDetails = `Status: ${status}\nCódigo: ${code}\nDetalhes: ${err.details || err.message}`;
+      } else if (err instanceof TypeError) {
+        status = 0;
+        code = 'NETWORK_OFFLINE';
+        message = 'Sem conexão com a internet ou servidor inacessível.';
+      }
+
+      renderChatErrorCard({
+        status,
+        code,
+        message,
+        technicalDetails,
+        originalText: lastUserMessageText,
+      });
     } finally {
       setTyping(false);
     }
   });
 
   /**
-   * Envia o histórico de mensagens para a Edge Function /chat
+   * Envia o histórico de mensagens para a Edge Function /chat com Idempotency-Key (M2)
    */
   async function sendToSupabaseEdgeFunction(userMsgText = '') {
     const url = `${window.APP_CONFIG.SUPABASE_FUNCTIONS_URL}/chat`;
+    const idempotencyKey = (window.crypto && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : `chat-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
     const headers = {
       'Content-Type': 'application/json',
+      'Idempotency-Key': idempotencyKey,
     };
 
     if (window.APP_CONFIG.SUPABASE_ANON_KEY) {
@@ -433,25 +802,62 @@
       headers['apikey'] = window.APP_CONFIG.SUPABASE_ANON_KEY;
     }
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify({
-        messages: conversationHistory,
-        context: {
-          ultimo_orcamento: localContext.ultimoOrcamento,
-        },
-      }),
-    });
+    abortController = new AbortController();
 
-    if (!response.ok) {
-      const errBody = await response.text().catch(() => '');
-      throw new Error(`Edge Function retornou status ${response.status}: ${errBody}`);
+    let response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: headers,
+        signal: abortController.signal,
+        body: JSON.stringify({
+          messages: conversationHistory,
+          context: {
+            ultimo_orcamento: localContext.ultimoOrcamento,
+          },
+        }),
+      });
+    } catch (fetchErr) {
+      if (fetchErr.name === 'AbortError') {
+        throw fetchErr;
+      }
+      const customErr = new Error('Sem conexão com o servidor.');
+      customErr.status = 0;
+      customErr.code = 'NETWORK_OFFLINE';
+      customErr.details = fetchErr.message;
+      throw customErr;
     }
 
-    const data = await response.json();
-    let replyText = data.reply || 'Desculpe, não consegui processar sua mensagem.';
-    let toolAction = data.tool_action || null;
+    if (!response.ok) {
+      let errJson = null;
+      try {
+        errJson = await response.json();
+      } catch {
+        // Not JSON
+      }
+
+      const parsedError = errJson?.error || {};
+      const customErr = new Error(parsedError.message || `Edge Function retornou status ${response.status}`);
+      customErr.status = response.status;
+      customErr.code = parsedError.code || (response.status === 400 ? 'VALIDATION_ERROR' : response.status === 429 ? 'RATE_LIMITED' : 'INTERNAL_ERROR');
+      customErr.friendlyMessage = parsedError.message;
+      customErr.details = JSON.stringify(errJson || { status: response.status });
+      throw customErr;
+    }
+
+    const rawData = await response.json();
+    const parsed = parseChat(rawData);
+
+    if (!parsed.ok) {
+      const customErr = new Error(parsed.error?.message || 'Erro ao processar retorno do assistente.');
+      customErr.status = 500;
+      customErr.code = parsed.error?.code || 'INTERNAL_ERROR';
+      customErr.details = JSON.stringify(parsed.error);
+      throw customErr;
+    }
+
+    let replyText = parsed.reply || 'Desculpe, não consegui processar sua mensagem.';
+    let toolAction = parsed.toolAction || null;
 
     // Se a ferramenta retornou cálculo de orçamento, armazena no estado local
     if (toolAction && toolAction.type === 'orcamento_calculado') {
@@ -459,36 +865,39 @@
     }
 
     // Heurística de proteção no front-end:
-    // Se a IA não retornou tool_action de lead_salvo, mas o usuário enviou contato (WhatsApp)
-    // e havia um orçamento recente, dispara persistência do lead e renderiza o card azul
+    // Só dispara fallback se tool_action !== 'lead_salvo' (M2)
     const phoneMatch = userMsgText.match(/\b(?:\+?55\s?)?(?:\(?\d{2}\)?[\s-]?)?\d{4,5}[-\s]?\d{4}\b/);
-    const detectouVazamentoNoReply = /quantidade_comodos|Agora vou registrar/i.test(data.reply || '');
+    const detectouVazamentoNoReply = /quantidade_comodos|Agora vou registrar/i.test(replyText || '');
     if ((!toolAction || toolAction.type !== 'lead_salvo') && (phoneMatch || detectouVazamentoNoReply) && localContext.ultimoOrcamento) {
-      console.log('[frontend] Disparando persistência do lead e Webhook Telegram em contingência...');
       const foneFinal = phoneMatch
         ? phoneMatch[0]
-        : (data.reply && data.reply.match(/\b(?:\+?55\s?)?(?:\(?\d{2}\)?[\s-]?)?\d{4,5}[-\s]?\d{4}\b/)?.[0]) || '';
+        : (replyText && replyText.match(/\b(?:\+?55\s?)?(?:\(?\d{2}\)?[\s-]?)?\d{4,5}[-\s]?\d{4}\b/)?.[0]) || '';
+      
       const rawNome = userMsgText
         .replace(foneFinal, '')
         .replace(/\b(meu|nome|é|whatsapp|fone|tel|e|sou|o|a)\b/gi, ' ')
         .replace(/[,.:;\-_]/g, ' ')
         .trim();
-      const nomeCliente = rawNome.length >= 2 ? rawNome.split(/\s+/)[0] : 'Cliente';
+      const nomeCliente = (rawNome.length >= 2 && !/^(meu|cliente)$/i.test(rawNome)) ? rawNome.split(/\s+/)[0] : 'Cliente';
 
       const leadPayload = {
         nome: nomeCliente,
-        telefone: phoneMatch[0],
+        telefone: foneFinal || 'Não informado',
         tipo_servico: localContext.ultimoOrcamento.tipo_servico || 'parede_lisa',
         quantidade_comodos: Number(localContext.ultimoOrcamento.quantidade_comodos) || 1,
         valor_calculado:
           Number(localContext.ultimoOrcamento.valor_total || localContext.ultimoOrcamento.valor_final) || 120.0,
       };
 
-      // Disparo assíncrono para o endpoint salvar-lead (garantindo inserção no Supabase e Webhook Telegram)
+      const leadIdempotencyKey = (window.crypto && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : `lead-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
       fetch(`${window.APP_CONFIG.SUPABASE_FUNCTIONS_URL}/salvar-lead`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Idempotency-Key': leadIdempotencyKey,
           ...(window.APP_CONFIG.SUPABASE_ANON_KEY
             ? {
                 Authorization: `Bearer ${window.APP_CONFIG.SUPABASE_ANON_KEY}`,
@@ -511,7 +920,7 @@
     // Guarda histórico com texto sanitizado
     conversationHistory.push({ role: 'assistant', content: sanitizeAIText(replyText) });
 
-    // Renderiza a resposta e os cards correspondentes (incluindo o card azul)
+    // Renderiza a resposta e os cards correspondentes
     appendMessage('assistant', replyText, toolAction);
   }
 
@@ -529,22 +938,23 @@
     // 1. Caso o usuário informe nome e telefone (salvar lead)
     const phoneMatch = text.match(/\b(?:\+?55\s?)?(?:\(?\d{2}\)?[\s-]?)?\d{4,5}[-\s]?\d{4}\b/);
     if (phoneMatch && localContext.ultimoOrcamento) {
+      const foneFinal = phoneMatch[0];
       const rawNome = text
-        .replace(phoneMatch[0], '')
+        .replace(foneFinal, '')
         .replace(/\b(meu|nome|é|whatsapp|fone|tel|e|sou|o|a)\b/gi, ' ')
         .replace(/[,.:;\-_]/g, ' ')
         .trim();
-      const nome = rawNome.length >= 2 ? rawNome.split(/\s+/)[0] : 'Cliente';
+      const nome = (rawNome.length >= 2 && !/^(meu|cliente)$/i.test(rawNome)) ? rawNome.split(/\s+/)[0] : 'Cliente';
 
       const leadData = {
         nome: nome,
-        telefone: telefone,
+        telefone: foneFinal,
         tipo_servico: localContext.ultimoOrcamento.tipo_servico,
         quantidade_comodos: localContext.ultimoOrcamento.quantidade_comodos,
         valor_calculado: localContext.ultimoOrcamento.valor_total,
       };
 
-      const reply = `Excelente, ${nome}! Seus dados foram salvos com sucesso e o pintor Valdir já recebeu a notificação com os detalhes do seu orçamento. Ele entrará em contato pelo WhatsApp ${telefone} em breve!`;
+      const reply = `Excelente, ${nome}! Seus dados foram salvos com sucesso e o pintor Valdir já recebeu a notificação com os detalhes do seu orçamento. Ele entrará em contato pelo WhatsApp ${foneFinal} em breve!`;
 
       conversationHistory.push({ role: 'assistant', content: reply });
       appendMessage('assistant', reply, { type: 'lead_salvo', data: leadData });
@@ -622,33 +1032,77 @@
   });
 
   // ==========================================================================
-  // 5. REINICIAR CONVERSA
+  // 5. REINICIAR CONVERSA (COM MODAL ACESSÍVEL - M1)
   // ==========================================================================
-  btnRestart.addEventListener('click', () => {
-    if (confirm('Deseja reiniciar a conversa e fazer um novo orçamento?')) {
+  btnRestart.addEventListener('click', async () => {
+    const confirmou = await confirmModal({
+      title: 'Reiniciar Atendimento',
+      desc: 'Deseja reiniciar a conversa e fazer um novo orçamento?',
+      danger: false,
+    });
+    if (confirmou) {
       initChat();
+      showToast('info', 'Atendimento reiniciado com sucesso.');
     }
   });
 
   // ==========================================================================
-  // 6. MODAL DE CONFIGURAÇÃO
+  // 6. MODAL DE CONFIGURAÇÃO (FOCUS-TRAP & ESCAPE - C4)
   // ==========================================================================
-  btnConfig.addEventListener('click', () => {
+  function abrirModalConfig() {
+    lastFocusedElement = document.activeElement;
     inputFunctionsUrl.value = window.APP_CONFIG.SUPABASE_FUNCTIONS_URL;
     inputAnonKey.value = window.APP_CONFIG.SUPABASE_ANON_KEY;
     checkDemoMode.checked = window.APP_CONFIG.DEMO_MODE;
     configModal.classList.remove('hidden');
-  });
+    inputFunctionsUrl.focus();
+    document.addEventListener('keydown', handleConfigModalKeydown);
+  }
 
-  btnCloseModal.addEventListener('click', () => {
+  function fecharModalConfig() {
     configModal.classList.add('hidden');
+    document.removeEventListener('keydown', handleConfigModalKeydown);
+    if (lastFocusedElement && typeof lastFocusedElement.focus === 'function') {
+      lastFocusedElement.focus();
+    }
+  }
+
+  function handleConfigModalKeydown(e) {
+    if (e.key === 'Escape') {
+      fecharModalConfig();
+    }
+  }
+
+  btnConfig.addEventListener('click', abrirModalConfig);
+  btnCloseModal.addEventListener('click', fecharModalConfig);
+  configModal.addEventListener('click', (e) => {
+    if (e.target === configModal) fecharModalConfig();
   });
 
-  configModal.addEventListener('click', (e) => {
-    if (e.target === configModal) {
-      configModal.classList.add('hidden');
-    }
-  });
+  // Validação customizada da URL em português (M4)
+  if (inputFunctionsUrl) {
+    inputFunctionsUrl.addEventListener('input', () => {
+      inputFunctionsUrl.setCustomValidity('');
+    });
+    inputFunctionsUrl.addEventListener('invalid', () => {
+      inputFunctionsUrl.setCustomValidity('Por favor, informe uma URL válida (ex: https://seu-projeto.supabase.co/functions/v1).');
+    });
+  }
+
+  // Contador de caracteres dinâmico (M4)
+  if (userInput && charCounter) {
+    userInput.addEventListener('input', () => {
+      const len = userInput.value.length;
+      charCounter.textContent = `${len}/140`;
+      if (len >= 135) {
+        charCounter.className = 'char-counter danger';
+      } else if (len >= 110) {
+        charCounter.className = 'char-counter warning';
+      } else {
+        charCounter.className = 'char-counter';
+      }
+    });
+  }
 
   btnSaveConfig.addEventListener('click', () => {
     const newUrl = inputFunctionsUrl.value.trim();
@@ -665,11 +1119,12 @@
     window.APP_CONFIG.DEMO_MODE = demo;
     localStorage.setItem('orcamento_demo_mode', String(demo));
 
-    configModal.classList.add('hidden');
+    fecharModalConfig();
+    showToast('success', 'Configurações de conexão salvas!');
 
     appendMessage(
       'assistant',
-      `⚙️ **Configurações salvas!**\n• Endpoint: \`${window.APP_CONFIG.SUPABASE_FUNCTIONS_URL}\`\n• Modo Demonstração: **${demo ? 'Ativado' : 'Desativado'}**`
+      `⚙️ **Configurações salvas!**\n• Conexão: \`${window.APP_CONFIG.SUPABASE_FUNCTIONS_URL}\`\n• Modo Demonstração: **${demo ? 'Ativado' : 'Desativado'}**`
     );
   });
 

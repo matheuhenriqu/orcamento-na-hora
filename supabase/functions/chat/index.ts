@@ -7,7 +7,12 @@
 // ============================================================================
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.8';
-import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts';
+import { handleCors } from '../_shared/cors.ts';
+import { ok, fail, createLogger } from '../_shared/response.ts';
+
+// Cache em memória de modelos Groq com validade de 10 minutos (M2)
+const MODELS_CACHE_TTL_MS = 10 * 60 * 1000;
+let cachedModels: { ids: string[]; expiresAt: number } | null = null;
 
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -597,17 +602,21 @@ Deno.serve(async (req: Request) => {
 
   try {
     const body: ChatRequestBody = await req.json().catch(() => ({ messages: [] }));
-    const { messages, context } = body;
+    const logger = createLogger('chat', req);
 
     if (!Array.isArray(messages) || messages.length === 0) {
-      return errorResponse('O campo "messages" deve ser um array com o histórico de conversa.', 400);
+      return fail('EMPTY_MESSAGES', 'O campo "messages" deve ser um array com o histórico de conversa.', 'Envie uma mensagem inicial para o assistente.', 400, undefined, req);
     }
 
     const groqApiKey = Deno.env.get('GROQ_API_KEY');
     if (!groqApiKey) {
-      return errorResponse(
+      return fail(
+        'GROQ_KEY_MISSING',
         'A chave GROQ_API_KEY não está configurada nas variáveis de ambiente do Supabase.',
-        500
+        'Configure a variável GROQ_API_KEY no painel do Supabase.',
+        500,
+        undefined,
+        req
       );
     }
 
@@ -629,19 +638,25 @@ Deno.serve(async (req: Request) => {
       }),
     ];
 
-    // Consultar dinamicamente os modelos disponíveis na conta Groq
+    // Consultar dinamicamente os modelos com cache de 10 minutos (M2)
     let availableModelIds: string[] = [];
-    try {
-      const modelsResp = await fetch('https://api.groq.com/openai/v1/models', {
-        headers: { Authorization: `Bearer ${groqApiKey}` },
-      });
-      if (modelsResp.ok) {
-        const modelsData = await modelsResp.json();
-        availableModelIds = (modelsData.data || []).map((m: { id: string }) => m.id);
-        console.log('[chat] Modelos disponíveis na Groq:', availableModelIds);
+    const now = Date.now();
+    if (cachedModels && now < cachedModels.expiresAt && cachedModels.ids.length > 0) {
+      availableModelIds = cachedModels.ids;
+    } else {
+      try {
+        const modelsResp = await fetch('https://api.groq.com/openai/v1/models', {
+          headers: { Authorization: `Bearer ${groqApiKey}` },
+        });
+        if (modelsResp.ok) {
+          const modelsData = await modelsResp.json();
+          availableModelIds = (modelsData.data || []).map((m: { id: string }) => m.id);
+          cachedModels = { ids: availableModelIds, expiresAt: now + 10 * 60 * 1000 };
+          logger.info(`Modelos atualizados no cache: ${availableModelIds.length} encontrados`);
+        }
+      } catch (e) {
+        logger.warn('Falha ao consultar lista de modelos da Groq:', e);
       }
-    } catch (e) {
-      console.warn('[chat] Falha ao consultar lista de modelos da Groq:', e);
     }
 
     // Priorizar modelos com suporte nativo e comprovado a TOOL CALLING.
@@ -737,14 +752,14 @@ Deno.serve(async (req: Request) => {
     }
 
     if (!completionData) {
-      return errorResponse('Erro ao conectar com modelos da Groq API.', 502, allErrors);
+      return fail('GROQ_UNAVAILABLE', 'Erro ao conectar com os modelos da Groq API.', 'Aguarde alguns segundos e envie novamente.', 502, allErrors, req);
     }
 
     const choice = (completionData.choices as Array<{ message: ChatMessage }>)?.[0];
     const assistantMsg = choice?.message;
 
     if (!assistantMsg) {
-      return errorResponse('Nenhuma resposta retornada pelo modelo de IA.', 500);
+      return fail('EMPTY_AI_RESPONSE', 'Nenhuma resposta retornada pelo modelo de IA.', 'Tente reformular sua solicitação.', 500, undefined, req);
     }
 
     // Identificar lista de tool calls (nativas ou detectadas de tags sintéticas)
@@ -917,21 +932,40 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      return jsonResponse({
-        reply: finalReply,
-        tool_action: toolActionMeta,
-      });
+      return ok(
+        {
+          reply: finalReply,
+          toolAction: toolActionMeta,
+        },
+        undefined,
+        req,
+        {
+          reply: finalReply,
+          tool_action: toolActionMeta,
+          toolAction: toolActionMeta,
+        }
+      );
     }
 
     // Se o modelo não chamou ferramentas, sanitizar e retornar a resposta direta
     const cleanReply = sanitizeTextOutput(assistantMsg.content || '');
-    return jsonResponse({
-      reply: cleanReply || 'Como posso te ajudar com o orçamento da sua pintura hoje?',
-      tool_action: null,
-    });
+    const defaultReply = cleanReply || 'Como posso te ajudar com o orçamento da sua pintura hoje?';
+    return ok(
+      {
+        reply: defaultReply,
+        toolAction: null,
+      },
+      undefined,
+      req,
+      {
+        reply: defaultReply,
+        tool_action: null,
+        toolAction: null,
+      }
+    );
   } catch (err: unknown) {
     const error = err as Error;
     console.error('[chat] Exceção inesperada:', error);
-    return errorResponse('Erro ao processar conversa com o assistente.', 500, error?.message);
+    return fail('INTERNAL_SERVER_ERROR', 'Erro ao processar conversa com o assistente.', 'Tente novamente em instantes.', 500, error?.message, req);
   }
 });

@@ -1,0 +1,158 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "O Orçamento na Hora - API Oficial",
+    "description": "API REST das Edge Functions Supabase para orçamento automatizado com IA e gestão de leads.",
+    "version": "1.1.0",
+    "contact": {
+      "name": "Suporte Técnico Valdir Pinturas",
+      "email": "contato@valdirpinturas.com.br"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://odfvajqnaeodwzaljxzm.supabase.co/functions/v1",
+      "description": "Supabase Cloud Production"
+    },
+    {
+      "url": "http://127.0.0.1:54321/functions/v1",
+      "description": "Supabase Local Development"
+    }
+  ],
+  "paths": {
+    "/chat": {
+      "post": {
+        "summary": "Processa mensagens da conversa com IA Groq Qwen e Tool Calling",
+        "operationId": "processarChat",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["messages"],
+                "properties": {
+                  "messages": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["role", "content"],
+                      "properties": {
+                        "role": { "type": "string", "enum": ["user", "assistant"] },
+                        "content": { "type": "string" }
+                      }
+                    }
+                  },
+                  "context": { "type": "object" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Resposta gerada com sucesso pela IA",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean", "example": true },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "reply": { "type": "string" },
+                        "toolAction": { "type": "object", "nullable": true }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/calcular-orcamento": {
+      "post": {
+        "summary": "Calcula orçamento oficial com tabela inviolável",
+        "operationId": "calcularOrcamento",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["tipo_servico", "quantidade_comodos"],
+                "properties": {
+                  "tipo_servico": { "type": "string", "enum": ["parede_lisa", "parede_textura", "teto"] },
+                  "quantidade_comodos": { "type": "integer", "minimum": 1 },
+                  "taxa_visita": { "type": "boolean", "default": false }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Cálculo realizado com sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean", "example": true },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "orcamento": {
+                          "type": "object",
+                          "properties": {
+                            "valor_final": { "type": "number", "example": 240.0 },
+                            "preco_unitario": { "type": "number", "example": 120.0 },
+                            "subtotal": { "type": "number", "example": 240.0 }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/salvar-lead": {
+      "get": {
+        "summary": "Lista leads com paginação e filtros (Requer Admin)",
+        "operationId": "listarLeads",
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20 } },
+          { "name": "q", "in": "query", "schema": { "type": "string" } },
+          { "name": "tipo", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Lista paginada de leads" },
+          "401": { "description": "Não autorizado" }
+        }
+      },
+      "post": {
+        "summary": "Salva novo lead ou executa ação administrativa",
+        "operationId": "salvarLead",
+        "responses": {
+          "200": { "description": "Lead salvo com sucesso" }
+        }
+      }
+    }
+  }
+}

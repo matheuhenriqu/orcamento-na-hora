@@ -2,11 +2,12 @@
 // PROJETO: O Orçamento na Hora (SENAI-SP)
 // EDGE FUNCTION: calcular-orcamento
 // DESCRIÇÃO: Valida o serviço e quantidade, consulta tabela_precos no Supabase
-//            e retorna o cálculo exato do orçamento.
+//            e retorna o cálculo exato do orçamento com contrato DX previsível.
 // ============================================================================
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.8';
-import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts';
+import { handleCors } from '../_shared/cors.ts';
+import { ok, fail, createLogger } from '../_shared/response.ts';
 
 interface CalcularOrcamentoPayload {
   tipo_servico: string;
@@ -40,9 +41,11 @@ Deno.serve(async (req: Request) => {
   const corsPreflight = handleCors(req);
   if (corsPreflight) return corsPreflight;
 
+  const logger = createLogger('calcular-orcamento', req);
+
   // 2. Aceita apenas POST
   if (req.method !== 'POST') {
-    return errorResponse('Método não permitido. Utilize POST.', 405);
+    return fail('METHOD_NOT_ALLOWED', 'Método não permitido. Utilize POST.', 'Envie uma requisição POST com tipo_servico e quantidade_comodos.', 405, undefined, req);
   }
 
   try {
@@ -51,12 +54,12 @@ Deno.serve(async (req: Request) => {
 
     // 3. Validação dos parâmetros
     if (!tipo_servico || typeof tipo_servico !== 'string') {
-      return errorResponse('O campo "tipo_servico" é obrigatório e deve ser um texto válido.', 400);
+      return fail('VALIDATION_ERROR', 'O campo "tipo_servico" é obrigatório e deve ser um texto válido.', 'Informe um tipo válido: parede_lisa, parede_textura ou teto.', 400, undefined, req);
     }
 
     const comodos = Number(quantidade_comodos);
     if (!Number.isInteger(comodos) || comodos <= 0) {
-      return errorResponse('O campo "quantidade_comodos" deve ser um número inteiro maior que zero.', 400);
+      return fail('VALIDATION_ERROR', 'O campo "quantidade_comodos" deve ser um número inteiro maior que zero.', 'Informe a quantidade de cômodos como um número positivo (ex: 2).', 400, undefined, req);
     }
 
     const servicoNormalizado = normalizarTipoServico(tipo_servico);
@@ -79,7 +82,7 @@ Deno.serve(async (req: Request) => {
         .maybeSingle();
 
       if (error) {
-        console.warn('[calcular-orcamento] Aviso ao consultar tabela_precos (utilizando fallback de contingência oficial):', error.message);
+        logger.warn('Aviso ao consultar tabela_precos (utilizando fallback de contingência oficial):', error.message);
       } else if (data) {
         precoUnitario = Number(data.preco_unitario);
         observacao = data.observacao || '';
@@ -87,7 +90,6 @@ Deno.serve(async (req: Request) => {
     }
 
     // 5. Fallback de contingência caso a variável de banco esteja ausente em teste local isolado
-    // Mantém estritamente os mesmos valores oficiais invioláveis
     if (!precoUnitario) {
       const precosOficiais: Record<string, { preco: number; nome: string; obs: string }> = {
         parede_lisa: {
@@ -109,9 +111,13 @@ Deno.serve(async (req: Request) => {
 
       const item = precosOficiais[servicoNormalizado];
       if (!item) {
-        return errorResponse(
-          `Tipo de serviço inválido: "${tipo_servico}". Serviços válidos: 'parede_lisa' (R$ 120,00), 'parede_textura' (R$ 180,00), 'teto' (R$ 100,00).`,
-          400
+        return fail(
+          'INVALID_SERVICE_TYPE',
+          `Tipo de serviço inválido: "${tipo_servico}".`,
+          "Serviços válidos: 'parede_lisa' (R$ 120,00), 'parede_textura' (R$ 180,00), 'teto' (R$ 100,00).",
+          400,
+          undefined,
+          req
         );
       }
       precoUnitario = item.preco;
@@ -141,8 +147,7 @@ Deno.serve(async (req: Request) => {
     // Valor final com desconto e taxa de visita
     const valorFinal = Number((subtotal - descontoAplicado + valorTaxaVisita).toFixed(2));
 
-    const resultado = {
-      success: true,
+    const orcamento = {
       tipo_servico: servicoNormalizado,
       nome_servico: nomeAmigavel,
       quantidade_comodos: comodos,
@@ -153,18 +158,26 @@ Deno.serve(async (req: Request) => {
       taxa_visita: temTaxaVisita,
       valor_taxa_visita: valorTaxaVisita,
       valor_final: valorFinal,
-      // Retrocompatibilidade
       valor_total: valorFinal,
       valor_total_formatado: `R$ ${valorFinal.toFixed(2).replace('.', ',')}`,
       observacao,
     };
 
-    console.log('[calcular-orcamento] Sucesso no cálculo:', resultado);
+    logger.info(`Cálculo realizado: ${servicoNormalizado}, ${comodos} cômodos -> R$ ${valorFinal}`);
 
-    return jsonResponse(resultado);
+    // Retorna contrato DX moderno { ok: true, data: { orcamento } } com aliases para retrocompatibilidade
+    return ok(
+      { orcamento },
+      undefined,
+      req,
+      {
+        success: true,
+        ...orcamento,
+      }
+    );
   } catch (err: unknown) {
     const error = err as Error;
-    console.error('[calcular-orcamento] Exceção inesperada:', error);
-    return errorResponse('Falha ao processar cálculo do orçamento.', 500, error?.message);
+    logger.error('Exceção inesperada ao calcular orçamento:', error);
+    return fail('CALCULATION_ERROR', 'Falha ao processar cálculo do orçamento.', 'Tente novamente em instantes.', 500, error?.message, req);
   }
 });

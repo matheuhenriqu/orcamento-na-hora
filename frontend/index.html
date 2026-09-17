@@ -15,6 +15,9 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- Link de Acessibilidade (WCAG 2.2 AA) -->
+  <a href="#user-input" class="skip-link">Pular para o chat</a>
+
   <div class="app-layout">
     
     <!-- ====================================================================
@@ -55,9 +58,9 @@
             <table class="tariff-table">
               <thead>
                 <tr>
-                  <th>Tipo de Serviço</th>
-                  <th>Unidade</th>
-                  <th class="text-right">Valor Fixo</th>
+                  <th scope="col">Tipo de Serviço</th>
+                  <th scope="col">Unidade</th>
+                  <th scope="col" class="text-right">Valor Fixo</th>
                 </tr>
               </thead>
               <tbody>
@@ -178,12 +181,12 @@
           <div class="terminal-status-dot"></div>
           <div>
             <h2 class="terminal-title">Terminal de Orçamento</h2>
-            <p class="terminal-desc">Atendimento automatizado com Tool Calling e IA</p>
+            <p class="terminal-desc">Atendimento automatizado com Assistente Virtual inteligente</p>
           </div>
         </div>
 
         <div class="header-actions">
-          <button id="btn-restart" class="btn-action-minimal" title="Reiniciar Atendimento">
+          <button id="btn-restart" class="btn-action-minimal" title="Reiniciar Atendimento" aria-label="Reiniciar Atendimento">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path>
               <path d="M21 3v5h-5"></path>
@@ -193,15 +196,15 @@
             <span class="desktop-only">Reiniciar</span>
           </button>
 
-          <button id="btn-config" class="btn-action-minimal" title="Configurar Conexão">
+          <button id="btn-config" class="btn-action-minimal" title="Configurar Conexão" aria-label="Configurar Conexão">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="3"></circle>
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
             </svg>
-            <span class="desktop-only">Endpoint</span>
+            <span class="desktop-only">Conexão</span>
           </button>
 
-          <a href="admin.html" class="btn-action-minimal mobile-only" title="Painel Admin">
+          <a href="admin.html" class="btn-action-minimal mobile-only" title="Painel Admin" aria-label="Painel Admin">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
               <rect x="3" y="3" width="18" height="18" rx="2"></rect>
               <line x1="3" y1="9" x2="21" y2="9"></line>
@@ -220,14 +223,14 @@
         </div>
       </div>
 
-      <!-- ÁREA DE ROLAGEM DE MENSAGENS -->
-      <div id="messages-container" class="messages-container">
+      <!-- ÁREA DE ROLAGEM DE MENSAGENS (WCAG 2.2 AA: role=log, aria-live=polite) -->
+      <div id="messages-container" class="messages-container" role="log" aria-live="polite" aria-label="Histórico de mensagens">
         <!-- Renderizado dinamicamente pelo JavaScript (app.js) -->
       </div>
 
-      <!-- INDICADOR DE PROCESSAMENTO / DIGITAÇÃO -->
-      <div id="typing-indicator" class="typing-container hidden">
-        <div class="avatar-small">
+      <!-- INDICADOR DE PROCESSAMENTO / DIGITAÇÃO COM BOTÃO CANCELAR -->
+      <div id="typing-indicator" class="typing-container hidden" role="status" aria-busy="true">
+        <div class="avatar-small" aria-hidden="true">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
           </svg>
@@ -237,37 +240,47 @@
           <span class="dot"></span>
           <span class="dot"></span>
         </div>
+        <span class="sr-only">Valdir está digitando...</span>
+        <button type="button" id="btn-cancel-ai" class="btn-cancel-typing" title="Cancelar resposta da IA">
+          Cancelar
+        </button>
       </div>
 
       <!-- BARRA DE ATALHOS / SUGESTÕES RÁPIDAS -->
       <div class="quick-chips-wrapper">
         <div class="chips-list">
-          <button class="chip" data-text="Olá! Quero pintar 2 cômodos com parede lisa.">
+          <button type="button" class="chip" data-text="Olá! Quero pintar 2 cômodos com parede lisa.">
             2 cômodos parede lisa (R$ 240)
           </button>
-          <button class="chip" data-text="Gostaria de fazer textura em 3 cômodos.">
+          <button type="button" class="chip" data-text="Gostaria de fazer textura em 3 cômodos.">
             3 cômodos de textura (R$ 540)
           </button>
-          <button class="chip" data-text="Quanto custa pintar o teto de 1 cômodo?">
+          <button type="button" class="chip" data-text="Quanto custa pintar o teto de 1 cômodo?">
             1 cômodo de teto (R$ 100)
           </button>
-          <button class="chip" data-text="Preciso pintar 5 cômodos de parede lisa com desconto.">
+          <button type="button" class="chip" data-text="Preciso pintar 5 cômodos de parede lisa com desconto.">
             5 cômodos c/ 10% OFF
           </button>
         </div>
       </div>
 
-      <!-- FORMULÁRIO DE ENTRADA DE MENSAGENS -->
+      <!-- FORMULÁRIO DE ENTRADA DE MENSAGENS COM CONTADOR (MAX 140) -->
       <form id="chat-form" class="chat-form">
-        <input
-          type="text"
-          id="user-input"
-          class="chat-input"
-          placeholder="Ex: Gostaria de pintar 3 cômodos de parede lisa e 2 de teto..."
-          autocomplete="off"
-          required
-        />
-        <button type="submit" id="btn-send" class="btn-send" title="Enviar Mensagem">
+        <div class="chat-input-wrapper">
+          <input
+            type="text"
+            id="user-input"
+            class="chat-input"
+            placeholder="Ex: Gostaria de pintar 3 cômodos de parede lisa e 2 de teto..."
+            autocomplete="off"
+            maxlength="140"
+            required
+            aria-label="Mensagem para o assistente"
+            aria-describedby="char-counter"
+          />
+          <span id="char-counter" class="char-counter" aria-live="polite">0/140</span>
+        </div>
+        <button type="submit" id="btn-send" class="btn-send" title="Enviar Mensagem" aria-label="Enviar Mensagem">
           <span>Enviar</span>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <line x1="22" y1="2" x2="11" y2="13"></line>
@@ -279,10 +292,10 @@
   </div>
 
   <!-- MODAL DE CONFIGURAÇÃO DE CONEXÃO -->
-  <div id="config-modal" class="modal-backdrop hidden">
+  <div id="config-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="config-modal-title">
     <div class="modal-card">
       <div class="modal-header">
-        <h3>Configuração de Conexão com Supabase</h3>
+        <h3 id="config-modal-title">Configuração de Conexão com Supabase</h3>
         <button id="btn-close-modal" class="btn-close" aria-label="Fechar Modal">&times;</button>
       </div>
       <div class="modal-body">
@@ -320,6 +333,26 @@
       </div>
       <div class="modal-footer">
         <button id="btn-save-config" class="btn-primary">Salvar e Conectar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONTAINER DE TOASTS ACESSÍVEIS (WCAG 2.2 AA) -->
+  <div id="toast-container" class="toast-container" role="region" aria-label="Notificações" aria-live="polite"></div>
+
+  <!-- MODAL DE CONFIRMAÇÃO ACESSÍVEL (SUBSTITUI ALERT / CONFIRM NATIVOS) -->
+  <div id="confirm-modal" class="confirm-modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-desc">
+    <div class="confirm-modal-card">
+      <div class="confirm-modal-header">
+        <h3 id="confirm-modal-title" class="confirm-modal-title">Confirmação</h3>
+        <button type="button" id="btn-confirm-close" class="btn-close" aria-label="Fechar">&times;</button>
+      </div>
+      <div class="confirm-modal-body">
+        <p id="confirm-modal-desc" class="confirm-modal-desc">Tem certeza que deseja prosseguir?</p>
+      </div>
+      <div class="confirm-modal-footer">
+        <button type="button" id="btn-confirm-cancel" class="btn-secondary-action">Cancelar</button>
+        <button type="button" id="btn-confirm-action" class="btn-danger-action">Confirmar</button>
       </div>
     </div>
   </div>

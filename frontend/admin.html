@@ -15,6 +15,8 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body class="admin-body">
+  <!-- Link de Acessibilidade (WCAG 2.2 AA) -->
+  <a href="#search-input" class="skip-link">Pular para busca e listagem</a>
 
   <!-- ====================================================================
        1. TELA DE LOGIN (LOGIN GATE - BLOQUEIO INICIAL COM SENHA)
@@ -80,18 +82,6 @@
           <a href="index.html" class="link-back-chat">
             ← Voltar ao Terminal de Atendimento
           </a>
-        </div>
-      </form>
-
-        <div class="login-card-footer">
-          <button type="button" id="btn-goto-login" class="link-switch-tab">
-            ← Já possui cadastro? <strong>Fazer login</strong>
-          </button>
-          <div style="margin-top: 6px;">
-            <a href="index.html" class="link-back-chat">
-              ← Voltar ao Terminal de Atendimento
-            </a>
-          </div>
         </div>
       </form>
     </div>
@@ -189,13 +179,14 @@
           </div>
           <div class="live-sync-indicator">
             <span class="sync-dot"></span>
-            <span>Supabase PostgreSQL + RLS Ativo</span>
+            <span>Banco de dados seguro ativo</span>
+            <span id="cache-indicator" class="text-xs text-muted" style="margin-left: 8px;">(Sincronizado agora)</span>
           </div>
         </div>
 
         <!-- GRID DE KPIS COM BORDAS DURAS (SWISS INDUSTRIAL) -->
         <section class="kpi-grid">
-          <div class="kpi-card">
+          <div class="kpi-card" title="Número total de contatos qualificados capturados">
             <div class="kpi-top">
               <span class="kpi-label">Total de Leads</span>
               <span class="kpi-tag-mono">CONVERTIDOS</span>
@@ -206,7 +197,7 @@
             <p class="kpi-meta">Contatos capturados pelo assistente</p>
           </div>
 
-          <div class="kpi-card highlight-card">
+          <div class="kpi-card highlight-card" title="Valor acumulado de todos os orçamentos emitidos">
             <div class="kpi-top">
               <span class="kpi-label">Faturamento Potencial</span>
               <span class="kpi-tag-mono emerald">VALOR TOTAL</span>
@@ -217,7 +208,7 @@
             <p class="kpi-meta">Soma de todas as propostas calculadas</p>
           </div>
 
-          <div class="kpi-card">
+          <div class="kpi-card" title="Média financeira estimada por proposta atendida">
             <div class="kpi-top">
               <span class="kpi-label">Ticket Médio</span>
               <span class="kpi-tag-mono">POR PROPOSTA</span>
@@ -228,7 +219,7 @@
             <p class="kpi-meta">Média financeira por cliente atendido</p>
           </div>
 
-          <div class="kpi-card">
+          <div class="kpi-card" title="Categoria de pintura com maior volume de solicitações">
             <div class="kpi-top">
               <span class="kpi-label">Serviço Mais Demandado</span>
               <span class="kpi-tag-mono">PREFERÊNCIA</span>
@@ -259,14 +250,14 @@
 
             <div class="toolbar-filters">
               <div class="filter-pills" id="filter-pills-container">
-                <button type="button" class="filter-pill active" data-filter="todos">Todos</button>
-                <button type="button" class="filter-pill" data-filter="parede_lisa">Parede Lisa</button>
-                <button type="button" class="filter-pill" data-filter="parede_textura">Textura</button>
-                <button type="button" class="filter-pill" data-filter="teto">Teto</button>
+                <button type="button" class="filter-pill active" data-filter="todos" aria-pressed="true">Todos</button>
+                <button type="button" class="filter-pill" data-filter="parede_lisa" aria-pressed="false">Parede Lisa</button>
+                <button type="button" class="filter-pill" data-filter="parede_textura" aria-pressed="false">Textura</button>
+                <button type="button" class="filter-pill" data-filter="teto" aria-pressed="false">Teto</button>
               </div>
 
-              <!-- Select nativo invisível/sincronizado para garantir compatibilidade -->
-              <select id="filter-service" class="select-service-hidden">
+              <!-- Select nativo invisível/sincronizado para acessibilidade -->
+              <select id="filter-service" class="select-service-hidden" aria-hidden="true" tabindex="-1">
                 <option value="todos">Todos os Serviços</option>
                 <option value="parede_lisa">Parede Lisa</option>
                 <option value="parede_textura">Parede com Textura</option>
@@ -282,13 +273,13 @@
             <table class="corporate-table">
               <thead>
                 <tr>
-                  <th style="width: 140px;">Registro</th>
-                  <th>Cliente</th>
-                  <th style="width: 180px;">WhatsApp / Contato</th>
-                  <th>Serviço Solicitado</th>
-                  <th style="width: 100px; text-align: center;">Cômodos</th>
-                  <th style="width: 150px; text-align: right;">Orçamento</th>
-                  <th style="width: 190px; text-align: right;">Ação Direta</th>
+                  <th scope="col" style="width: 140px;">Registro</th>
+                  <th scope="col">Cliente</th>
+                  <th scope="col" style="width: 180px;">WhatsApp / Contato</th>
+                  <th scope="col">Serviço Solicitado</th>
+                  <th scope="col" style="width: 100px; text-align: center;">Cômodos</th>
+                  <th scope="col" style="width: 150px; text-align: right;">Orçamento</th>
+                  <th scope="col" style="width: 190px; text-align: right;">Ação Direta</th>
                 </tr>
               </thead>
               <tbody id="leads-tbody">
@@ -307,6 +298,14 @@
               <h3 class="empty-title">Nenhum orçamento encontrado</h3>
               <p class="empty-desc">Não foram encontrados registros correspondentes aos critérios de busca ou filtros aplicados.</p>
             </div>
+          </div>
+
+          <!-- BARRA DE PAGINAÇÃO -->
+          <div class="table-pagination-bar" id="pagination-container">
+            <span id="pagination-info" class="pagination-info">Exibindo 0 de 0 orçamentos</span>
+            <button type="button" id="btn-load-more" class="btn-load-more hidden">
+              <span>Carregar mais</span>
+            </button>
           </div>
         </section>
 
@@ -361,11 +360,11 @@
             <table class="corporate-table compact-table">
               <thead>
                 <tr>
-                  <th>Usuário</th>
-                  <th>Nome Completo</th>
-                  <th>Perfil</th>
-                  <th>Criado Em</th>
-                  <th style="text-align: right;">Ações</th>
+                  <th scope="col">Usuário</th>
+                  <th scope="col">Nome Completo</th>
+                  <th scope="col">Perfil</th>
+                  <th scope="col">Criado Em</th>
+                  <th scope="col" style="text-align: right;">Ações</th>
                 </tr>
               </thead>
               <tbody id="users-tbody">
@@ -443,6 +442,26 @@
             </div>
           </form>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONTAINER DE TOASTS ACESSÍVEIS (WCAG 2.2 AA) -->
+  <div id="toast-container" class="toast-container" role="region" aria-label="Notificações" aria-live="polite"></div>
+
+  <!-- MODAL DE CONFIRMAÇÃO ACESSÍVEL (SUBSTITUI ALERT / CONFIRM NATIVOS) -->
+  <div id="confirm-modal" class="confirm-modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-desc">
+    <div class="confirm-modal-card">
+      <div class="confirm-modal-header">
+        <h3 id="confirm-modal-title" class="confirm-modal-title">Confirmação</h3>
+        <button type="button" id="btn-confirm-close" class="btn-close" aria-label="Fechar">&times;</button>
+      </div>
+      <div class="confirm-modal-body">
+        <p id="confirm-modal-desc" class="confirm-modal-desc">Tem certeza que deseja prosseguir?</p>
+      </div>
+      <div class="confirm-modal-footer">
+        <button type="button" id="btn-confirm-cancel" class="btn-secondary-action">Cancelar</button>
+        <button type="button" id="btn-confirm-action" class="btn-danger-action">Confirmar</button>
       </div>
     </div>
   </div>

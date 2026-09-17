@@ -1,13 +1,14 @@
 // ============================================================================
 // PROJETO: O Orçamento na Hora (SENAI-SP)
 // EDGE FUNCTION: salvar-lead
-// DESCRIÇÃO: Persiste os dados do lead na tabela orcamentos_leads com recálculo
-//            inviolável de preços server-side, autenticação administrativa estrita
-//            e notificação em tempo real via Telegram Bot API.
+// DESCRIÇÃO: Persiste os dados do lead com paginação real, recálculo server-side
+//            inviolável, deduplicação em memória (M2), autenticação administrativa
+//            e respostas padronizadas (C1 / C3).
 // ============================================================================
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.8';
-import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts';
+import { handleCors } from '../_shared/cors.ts';
+import { ok, fail, createLogger } from '../_shared/response.ts';
 
 // ----------------------------------------------------------------------------
 // TABELA OFICIAL DE PREÇOS (INVIOLÁVEL)
@@ -33,6 +34,27 @@ function normalizarTipoServico(tipo: unknown): TipoServicoValido {
 }
 
 /**
+ * Cache de deduplicação em memória (2 minutos) contra disparos repetidos (M2)
+ */
+const DEDUPE_WINDOW_MS = 2 * 60 * 1000;
+
+interface DedupeEntry {
+  leadId: string;
+  lead: Record<string, unknown>;
+  timestamp: number;
+}
+const dedupeCache = new Map<string, DedupeEntry>();
+
+function cleanDedupeCache() {
+  const now = Date.now();
+  for (const [k, v] of dedupeCache.entries()) {
+    if (now - v.timestamp > DEDUPE_WINDOW_MS) {
+      dedupeCache.delete(k);
+    }
+  }
+}
+
+/**
  * Comparação em tempo constante para prevenir ataques de temporização (Timing Attacks)
  */
 function constantTimeEqual(a: string, b: string): boolean {
@@ -49,10 +71,7 @@ function constantTimeEqual(a: string, b: string): boolean {
 }
 
 /**
- * Validação rigorosa de autenticação administrativa (A3):
- * 1. x-admin-key comparado em tempo constante com ADMIN_DASHBOARD_SECRET
- * 2. apikey comparada em tempo constante com SUPABASE_SERVICE_ROLE_KEY
- * 3. JWT válido (Supabase Auth) onde app_metadata.role == 'admin' ou profile.role == 'admin'
+ * Validação rigorosa de autenticação administrativa (A3 / C1)
  */
 async function validarAutorizacaoAdmin(
   req: Request,
@@ -74,7 +93,6 @@ async function validarAutorizacaoAdmin(
   const authHeader = req.headers.get('authorization') || '';
   const token = authHeader.replace(/^Bearer\s+/i, '').trim();
 
-  // Rejeita tokens ausentes ou curtos/inválidos
   if (!token || token.length < 20) {
     return { authorized: false };
   }
@@ -90,14 +108,12 @@ async function validarAutorizacaoAdmin(
       return { authorized: false };
     }
 
-    // Checar role admin em app_metadata ou user_metadata
     const appRole = (user.app_metadata as Record<string, unknown> | undefined)?.role;
     const userRole = (user.user_metadata as Record<string, unknown> | undefined)?.role;
     if (appRole === 'admin' || userRole === 'admin') {
       return { authorized: true, user: user as unknown as Record<string, unknown> };
     }
 
-    // Checar perfil na tabela profiles caso serviceKey esteja disponível
     if (serviceKey) {
       const supabaseAdmin = createClient(supabaseUrl, serviceKey);
       const { data: profile } = await supabaseAdmin
@@ -132,9 +148,7 @@ async function enviarNotificacaoTelegram(
 ): Promise<{ enviado: boolean; motivo?: string; total_destinatarios?: number }> {
   const botToken = Deno.env.get('TELEGRAM_BOT_TOKEN');
   if (!botToken) {
-    const msg = 'TELEGRAM_BOT_TOKEN não configurado nas variáveis de ambiente.';
-    console.warn(`[salvar-lead] ${msg}`);
-    return { enviado: false, motivo: msg };
+    return { enviado: false, motivo: 'TELEGRAM_BOT_TOKEN não configurado.' };
   }
 
   const destinatarios = new Set<string | number>();
@@ -158,9 +172,7 @@ async function enviarNotificacaoTelegram(
           }
         });
       }
-    } catch (e) {
-      console.warn('[salvar-lead] Não foi possível consultar telegram_inscritos:', (e as Error).message);
-    }
+    } catch (_) {}
   }
 
   if (destinatarios.size === 0) {
@@ -205,12 +217,8 @@ async function enviarNotificacaoTelegram(
       const resultado = await response.json().catch(() => ({}));
       if (response.ok && resultado.ok) {
         enviadosComSucesso++;
-      } else {
-        console.warn(`[salvar-lead] Falha ao enviar para chat_id ${chatId}:`, resultado.description);
       }
-    } catch (err: unknown) {
-      console.error(`[salvar-lead] Erro de rede ao notificar chat ${chatId}:`, (err as Error)?.message);
-    }
+    } catch (_) {}
   }
 
   return {
@@ -225,53 +233,74 @@ Deno.serve(async (req: Request) => {
   const corsPreflight = handleCors(req);
   if (corsPreflight) return corsPreflight;
 
+  const logger = createLogger('salvar-lead', req);
+
   const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
   const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
   const supabaseServiceKey =
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? Deno.env.get('SUPABASE_ANON_KEY') ?? '';
 
   // ==========================================================================
-  // 2. REQUISIÇÕES GET: LISTAGEM DE LEADS (PROTEÇÃO A3 - LGPD)
+  // 2. REQUISIÇÕES GET: LISTAGEM DE LEADS COM PAGINAÇÃO REAL (C3)
   // ==========================================================================
   if (req.method === 'GET') {
     const authCheck = await validarAutorizacaoAdmin(req, supabaseUrl, supabaseAnonKey, supabaseServiceKey);
     if (!authCheck.authorized) {
-      return errorResponse('Acesso não autorizado.', 401);
+      return fail('UNAUTHORIZED', 'Acesso não autorizado.', 'Faça login com credenciais de administrador.', 401, undefined, req);
     }
 
     if (!supabaseUrl || !supabaseServiceKey) {
-      return jsonResponse({ success: true, leads: [] });
+      return ok({ leads: [] }, { page: 1, limit: 20, total: 0 }, req, { leads: [], total: 0 });
     }
 
     try {
-      const supabase = createClient(supabaseUrl, supabaseServiceKey);
-      const { data, error } = await supabase
-        .from('orcamentos_leads')
-        .select('*')
-        .order('created_at', { ascending: false });
+      const urlObj = new URL(req.url);
+      const page = Math.max(1, parseInt(urlObj.searchParams.get('page') || '1', 10) || 1);
+      const limit = Math.min(100, Math.max(1, parseInt(urlObj.searchParams.get('limit') || '20', 10) || 20));
+      const q = (urlObj.searchParams.get('q') || '').trim();
+      const tipo = (urlObj.searchParams.get('tipo') || '').trim();
 
-      if (error) {
-        console.warn('[salvar-lead] Aviso ao listar leads:', error.message);
-        return jsonResponse({
-          success: true,
-          total: 0,
-          leads: [],
-          aviso: error.message,
-        });
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      let query = supabase
+        .from('orcamentos_leads')
+        .select('*', { count: 'exact' });
+
+      if (tipo && tipo !== 'todos') {
+        query = query.eq('tipo_servico', tipo);
+      }
+      if (q) {
+        query = query.or(`nome.ilike.%${q}%,telefone.ilike.%${q}%`);
       }
 
-      return jsonResponse({
-        success: true,
-        total: (data || []).length,
-        leads: data || [],
-      });
+      const from = (page - 1) * limit;
+      const to = from + limit - 1;
+
+      const { data, count, error } = await query
+        .order('created_at', { ascending: false })
+        .range(from, to);
+
+      if (error) {
+        logger.warn('Aviso ao listar leads:', error.message);
+        return ok({ leads: [] }, { page, limit, total: 0, error: error.message }, req, { leads: [], total: 0 });
+      }
+
+      const leadsList = data || [];
+      const totalCount = count !== null ? count : leadsList.length;
+
+      logger.info(`Leads consultados com sucesso. Página: ${page}, Retornados: ${leadsList.length}, Total: ${totalCount}`);
+
+      return ok(
+        { leads: leadsList },
+        { page, limit, total: totalCount },
+        req,
+        {
+          total: totalCount,
+          leads: leadsList,
+        }
+      );
     } catch (e) {
-      return jsonResponse({
-        success: true,
-        total: 0,
-        leads: [],
-        aviso: (e as Error).message,
-      });
+      logger.error('Erro ao consultar leads:', e);
+      return ok({ leads: [] }, { page: 1, limit: 20, total: 0 }, req, { leads: [], total: 0 });
     }
   }
 
@@ -279,7 +308,7 @@ Deno.serve(async (req: Request) => {
   // 3. REQUISIÇÕES POST: CRIAÇÃO DE LEADS E AÇÕES ADMINISTRATIVAS
   // ==========================================================================
   if (req.method !== 'POST') {
-    return errorResponse('Método não permitido. Utilize POST ou GET.', 405);
+    return fail('METHOD_NOT_ALLOWED', 'Método não permitido. Utilize POST ou GET.', 'Envie uma requisição POST ou GET.', 405, undefined, req);
   }
 
   try {
@@ -292,7 +321,7 @@ Deno.serve(async (req: Request) => {
     if (body.action === 'create_user') {
       const authCheck = await validarAutorizacaoAdmin(req, supabaseUrl, supabaseAnonKey, supabaseServiceKey);
       if (!authCheck.authorized) {
-        return errorResponse('Acesso não autorizado para cadastro de operadores.', 401);
+        return fail('UNAUTHORIZED', 'Acesso não autorizado para cadastro de operadores.', 'Autentique-se como administrador.', 401, undefined, req);
       }
 
       const email = String(body.email || '').trim().toLowerCase();
@@ -301,15 +330,15 @@ Deno.serve(async (req: Request) => {
       const role = String(body.role || 'atendente').trim().toLowerCase();
 
       if (!email || !password || !nome) {
-        return errorResponse('Os campos email, senha e nome são obrigatórios.', 400);
+        return fail('VALIDATION_ERROR', 'Os campos email, senha e nome são obrigatórios.', 'Preencha todos os campos do formulário.', 400, undefined, req);
       }
 
       if (password.length < 12) {
-        return errorResponse('A senha deve conter no mínimo 12 caracteres conforme política de segurança.', 400);
+        return fail('WEAK_PASSWORD', 'A senha deve conter no mínimo 12 caracteres.', 'Crie uma senha forte com ao menos 12 caracteres, maiúscula, minúscula, número e símbolo.', 400, undefined, req);
       }
 
       if (!['admin', 'atendente', 'pintor'].includes(role)) {
-        return errorResponse('Perfil inválido. Perfis aceitos: admin, atendente, pintor.', 400);
+        return fail('INVALID_ROLE', 'Perfil inválido.', 'Escolha um dos perfis aceitos: admin, atendente ou pintor.', 400, undefined, req);
       }
 
       const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
@@ -322,10 +351,9 @@ Deno.serve(async (req: Request) => {
       });
 
       if (createError || !newUser?.user) {
-        return errorResponse(createError?.message || 'Erro ao criar usuário no Supabase Auth.', 400);
+        return fail('AUTH_USER_CREATION_FAILED', createError?.message || 'Erro ao criar usuário no Supabase Auth.', 'Verifique se o e-mail já não está cadastrado.', 400, undefined, req);
       }
 
-      // Sincronizar na tabela profiles
       await supabaseAdmin.from('profiles').upsert({
         id: newUser.user.id,
         email,
@@ -334,17 +362,21 @@ Deno.serve(async (req: Request) => {
         updated_at: new Date().toISOString(),
       });
 
-      return jsonResponse({
-        success: true,
-        message: `Usuário ${email} cadastrado com sucesso!`,
-        user: { id: newUser.user.id, email, nome, role },
-      });
+      return ok(
+        { user: { id: newUser.user.id, email, nome, role } },
+        undefined,
+        req,
+        {
+          message: `Usuário ${email} cadastrado com sucesso!`,
+          user: { id: newUser.user.id, email, nome, role },
+        }
+      );
     }
 
     if (body.action === 'list_users') {
       const authCheck = await validarAutorizacaoAdmin(req, supabaseUrl, supabaseAnonKey, supabaseServiceKey);
       if (!authCheck.authorized) {
-        return errorResponse('Acesso não autorizado.', 401);
+        return fail('UNAUTHORIZED', 'Acesso não autorizado.', 'Autentique-se como administrador.', 401, undefined, req);
       }
 
       const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
@@ -353,29 +385,33 @@ Deno.serve(async (req: Request) => {
         .select('*')
         .order('created_at', { ascending: false });
 
-      return jsonResponse({
-        success: true,
-        users: profiles || [],
-        error: pError?.message,
-      });
+      return ok(
+        { users: profiles || [] },
+        undefined,
+        req,
+        {
+          users: profiles || [],
+          error: pError?.message,
+        }
+      );
     }
 
     if (body.action === 'delete_user') {
       const authCheck = await validarAutorizacaoAdmin(req, supabaseUrl, supabaseAnonKey, supabaseServiceKey);
       if (!authCheck.authorized) {
-        return errorResponse('Acesso não autorizado.', 401);
+        return fail('UNAUTHORIZED', 'Acesso não autorizado.', 'Autentique-se como administrador.', 401, undefined, req);
       }
 
       const userId = String(body.user_id || '').trim();
       if (!userId) {
-        return errorResponse('O identificador user_id é obrigatório.', 400);
+        return fail('VALIDATION_ERROR', 'O identificador user_id é obrigatório.', 'Informe o ID do operador a ser excluído.', 400, undefined, req);
       }
 
       const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
       await supabaseAdmin.auth.admin.deleteUser(userId);
       await supabaseAdmin.from('profiles').delete().eq('id', userId);
 
-      return jsonResponse({ success: true, message: 'Usuário removido com sucesso.' });
+      return ok({ deleted: true }, undefined, req, { message: 'Usuário removido com sucesso.' });
     }
 
     // ------------------------------------------------------------------------
@@ -388,15 +424,14 @@ Deno.serve(async (req: Request) => {
     const telefoneRaw = String(body.telefone || '').trim();
 
     if (!telefoneRaw || telefoneRaw.replace(/\D/g, '').length < 8) {
-      return errorResponse('O campo "telefone" é obrigatório e deve conter um número de contato válido.', 400);
+      return fail('INVALID_PHONE', 'O campo "telefone" é obrigatório e deve conter um número de contato válido.', 'Informe um WhatsApp com DDD válido (ex: 11999998888).', 400, undefined, req);
     }
 
     // Suporta comodos ou quantidade_comodos
     const rawComodos = body.comodos !== undefined ? body.comodos : body.quantidade_comodos;
     const comodos = Math.max(1, Math.round(Number(rawComodos) || 1));
 
-    // A4: Validação estrita de tipo_servico e RECÁLCULO OBRIGATÓRIO server-side.
-    // Ignora body.valor_total e body.valor_calculado enviados pelo cliente.
+    // A4: Recálculo obrigatório e inviolável
     const tipoServico = normalizarTipoServico(body.tipo_servico);
     const precoUnitario = TABELA_PRECOS[tipoServico];
     const subtotal = precoUnitario * comodos;
@@ -413,6 +448,26 @@ Deno.serve(async (req: Request) => {
       valor_calculado: valorCalculadoOficial,
     };
 
+    // M2: Verificação de deduplicação recente (2 minutos)
+    cleanDedupeCache();
+    const idempotencyKey = req.headers.get('idempotency-key') || '';
+    const dedupeKey = idempotencyKey || `${telefoneRaw}_${tipoServico}_${comodos}_${valorCalculadoOficial}`;
+    const cached = dedupeCache.get(dedupeKey);
+    if (cached && (Date.now() - cached.timestamp) < 2 * 60 * 1000) {
+      logger.info('Lead duplicado detectado no intervalo de 2 minutos. Retornando lead existente.');
+      return ok(
+        { lead: cached.lead },
+        { deduplicated: true },
+        req,
+        {
+          lead_id: cached.leadId,
+          lead: cached.lead,
+          gravado_no_banco: true,
+          message: 'Orçamento já registrado recentemente.',
+        }
+      );
+    }
+
     let leadId: string = crypto.randomUUID();
     let gravadoNoBanco = false;
 
@@ -427,40 +482,53 @@ Deno.serve(async (req: Request) => {
         .single();
 
       if (error) {
-        console.error('[salvar-lead] Erro ao gravar lead na tabela orcamentos_leads:', error);
-        return errorResponse('Erro ao registrar lead no banco de dados.', 500, error.message);
+        logger.error('Erro ao gravar lead na tabela orcamentos_leads:', error);
+        return fail('DATABASE_ERROR', 'Erro ao registrar lead no banco de dados.', 'Tente novamente em instantes.', 500, error.message, req);
       }
 
       if (data?.id) {
         leadId = String(data.id);
         gravadoNoBanco = true;
-        console.log('[salvar-lead] Lead gravado com sucesso no Supabase! ID:', leadId);
+        logger.info(`Lead gravado com sucesso no Supabase! ID: ${leadId}`);
       }
     } else {
-      console.warn('[salvar-lead] Supabase não configurado no ambiente atual. Gerado ID simulado:', leadId);
+      logger.warn('Supabase não configurado no ambiente atual. Gerado ID simulado.');
     }
+
+    const leadCompleto = {
+      id: leadId,
+      ...leadSanitizado,
+      subtotal,
+      desconto,
+      taxa_visita: temTaxaVisita,
+      valor_final: valorCalculadoOficial,
+    };
+
+    // Registrar no cache de deduplicação
+    dedupeCache.set(dedupeKey, {
+      leadId,
+      lead: leadCompleto,
+      timestamp: Date.now(),
+    });
 
     // Notificação Telegram em segundo plano
     const statusTelegram = await enviarNotificacaoTelegram(leadSanitizado, supabaseClient);
 
-    return jsonResponse({
-      success: true,
-      message: 'Orçamento e dados do lead registrados com sucesso!',
-      lead_id: leadId,
-      gravado_no_banco: gravadoNoBanco,
-      lead: {
-        id: leadId,
-        ...leadSanitizado,
-        subtotal,
-        desconto,
-        taxa_visita: temTaxaVisita,
-        valor_final: valorCalculadoOficial,
-      },
-      notificacao_telegram: statusTelegram,
-    });
+    return ok(
+      { lead: leadCompleto },
+      undefined,
+      req,
+      {
+        message: 'Orçamento e dados do lead registrados com sucesso!',
+        lead_id: leadId,
+        gravado_no_banco: gravadoNoBanco,
+        lead: leadCompleto,
+        notificacao_telegram: statusTelegram,
+      }
+    );
   } catch (err: unknown) {
     const error = err as Error;
-    console.error('[salvar-lead] Exceção inesperada ao salvar lead:', error);
-    return errorResponse('Falha ao processar e salvar o lead.', 500, error?.message);
+    logger.error('Exceção inesperada ao salvar lead:', error);
+    return fail('INTERNAL_SERVER_ERROR', 'Falha ao processar e salvar o lead.', 'Tente novamente mais tarde.', 500, error?.message, req);
   }
 });

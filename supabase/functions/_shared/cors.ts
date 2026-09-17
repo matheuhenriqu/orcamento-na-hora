@@ -5,7 +5,7 @@
 
 export const corsHeaders: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-admin-session, x-telegram-bot-api-secret-token',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-admin-session, x-telegram-bot-api-secret-token, idempotency-key, x-admin-key, x-request-id',
   'Access-Control-Allow-Methods': 'POST, GET, OPTIONS, PUT, DELETE',
 };
 
@@ -41,7 +41,7 @@ export function getCorsHeaders(req?: Request): Record<string, string> {
 
   return {
     'Access-Control-Allow-Origin': allowedOrigin,
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-admin-session, x-telegram-bot-api-secret-token',
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-admin-session, x-telegram-bot-api-secret-token, idempotency-key, x-admin-key, x-request-id',
     'Access-Control-Allow-Methods': 'POST, GET, OPTIONS, PUT, DELETE',
     'Vary': 'Origin',
   };

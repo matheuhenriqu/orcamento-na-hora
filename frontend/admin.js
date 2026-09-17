@@ -58,7 +58,161 @@
   const kpiTicketMedio = document.getElementById('kpi-ticket-medio');
   const kpiTopServico = document.getElementById('kpi-top-servico');
 
+  // Novos elementos de paginação, cache e acessibilidade (C3, M1)
+  const cacheIndicator = document.getElementById('cache-indicator');
+  const btnLoadMore = document.getElementById('btn-load-more');
+  const paginationInfo = document.getElementById('pagination-info');
+
   let allLeads = [];
+  let currentPage = 1;
+  const pageSize = 20;
+  let totalLeadsCount = 0;
+  let leadsCache = null;
+  let lastFetchTime = 0;
+  const CACHE_TTL_MS = 60 * 1000; // 60 segundos (C3)
+  let cacheTimerInterval = null;
+  let lastUsersModalOpener = null;
+
+  // ==========================================================================
+  // HELPERS DE CONTRATO PREVISÍVEL (C1) & TOASTS/MODAIS ACESSÍVEIS (M1)
+  // ==========================================================================
+
+  /**
+   * Helper parseLeads(res) para contrato previsível { ok: true, data: { leads } } / { ok: false, error }
+   */
+  function parseLeads(res) {
+    if (!res) return { ok: false, leads: [], meta: { page: 1, limit: 20, total: 0 } };
+
+    if (res.ok === true && res.data) {
+      return {
+        ok: true,
+        leads: res.data.leads || [],
+        meta: res.meta || { page: 1, limit: 20, total: (res.data.leads || []).length },
+      };
+    }
+
+    if (Array.isArray(res.leads)) {
+      return {
+        ok: true,
+        leads: res.leads,
+        meta: res.meta || { page: 1, limit: 20, total: res.leads.length },
+      };
+    }
+
+    if (res.ok === false && res.error) {
+      return {
+        ok: false,
+        leads: [],
+        error: res.error,
+        meta: { page: 1, limit: 20, total: 0 },
+      };
+    }
+
+    return {
+      ok: false,
+      leads: [],
+      meta: { page: 1, limit: 20, total: 0 },
+    };
+  }
+
+  /**
+   * Sistema de Toasts Acessíveis (WCAG 2.2 AA)
+   */
+  function showToast(type, msg, action = null) {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+
+    const item = document.createElement('div');
+    item.className = `toast-item toast-${type || 'info'}`;
+    item.setAttribute('role', type === 'error' ? 'alert' : 'status');
+
+    const textSpan = document.createElement('span');
+    textSpan.textContent = msg;
+    item.appendChild(textSpan);
+
+    if (action && action.label && typeof action.onClick === 'function') {
+      const actionBtn = document.createElement('button');
+      actionBtn.type = 'button';
+      actionBtn.className = 'toast-action-btn';
+      actionBtn.textContent = action.label;
+      actionBtn.addEventListener('click', () => {
+        action.onClick();
+        item.remove();
+      });
+      item.appendChild(actionBtn);
+    }
+
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'toast-close-btn';
+    closeBtn.setAttribute('aria-label', 'Fechar notificação');
+    closeBtn.innerHTML = '&times;';
+    closeBtn.addEventListener('click', () => item.remove());
+    item.appendChild(closeBtn);
+
+    container.appendChild(item);
+
+    setTimeout(() => {
+      if (item.parentNode) item.remove();
+    }, 5000);
+  }
+
+  /**
+   * Modal de Confirmação Acessível (substitui window.confirm e window.alert)
+   */
+  function confirmModal({ title = 'Confirmação', desc = 'Deseja continuar?', danger = false } = {}) {
+    return new Promise((resolve) => {
+      const modal = document.getElementById('confirm-modal');
+      if (!modal) {
+        resolve(true);
+        return;
+      }
+
+      const titleEl = document.getElementById('confirm-modal-title');
+      const descEl = document.getElementById('confirm-modal-desc');
+      const btnCancel = document.getElementById('btn-confirm-cancel');
+      const btnConfirm = document.getElementById('btn-confirm-action');
+      const btnClose = document.getElementById('btn-confirm-close');
+
+      if (titleEl) titleEl.textContent = title;
+      if (descEl) descEl.textContent = desc;
+
+      if (btnConfirm) {
+        btnConfirm.className = danger ? 'btn-danger-action' : 'btn-primary';
+      }
+
+      const prevFocus = document.activeElement;
+      modal.classList.remove('hidden');
+      if (btnConfirm) btnConfirm.focus();
+
+      function cleanup(result) {
+        modal.classList.add('hidden');
+        document.removeEventListener('keydown', handleKeydown);
+        if (prevFocus && typeof prevFocus.focus === 'function') prevFocus.focus();
+        resolve(result);
+      }
+
+      function handleKeydown(e) {
+        if (e.key === 'Escape') {
+          cleanup(false);
+        }
+      }
+
+      document.addEventListener('keydown', handleKeydown);
+
+      if (btnCancel) btnCancel.onclick = () => cleanup(false);
+      if (btnClose) btnClose.onclick = () => cleanup(false);
+      if (btnConfirm) btnConfirm.onclick = () => cleanup(true);
+      modal.onclick = (e) => {
+        if (e.target === modal) cleanup(false);
+      };
+    });
+  }
+
+  // Exportar helpers para escopo global para testes
+  window.parseLeads = parseLeads;
+  window.showToast = showToast;
+  window.confirmModal = confirmModal;
 
   // Exibir a data corrente no header corporativo
   if (currentDateBadge) {
@@ -172,13 +326,15 @@
   }
 
   // ==========================================================================
-  // 2. MODAL DE GESTÃO DE OPERADORES NO DASHBOARD (ADMIN REAL - A2)
+  // 2. MODAL DE GESTÃO DE OPERADORES NO DASHBOARD (COM FOCUS-TRAP & ESCAPE - C4)
   // ==========================================================================
   function abrirModalUsuarios() {
     if (usersModal) {
+      lastUsersModalOpener = document.activeElement;
       usersModal.classList.remove('hidden');
       mostrarSecaoModal('list');
       renderizarListaUsuarios();
+      document.addEventListener('keydown', handleUsersModalKeydown);
     }
   }
 
@@ -187,6 +343,16 @@
       usersModal.classList.add('hidden');
       if (modalUserForm) modalUserForm.reset();
       limparFeedbackModal();
+      document.removeEventListener('keydown', handleUsersModalKeydown);
+      if (lastUsersModalOpener && typeof lastUsersModalOpener.focus === 'function') {
+        lastUsersModalOpener.focus();
+      }
+    }
+  }
+
+  function handleUsersModalKeydown(e) {
+    if (e.key === 'Escape') {
+      fecharModalUsuarios();
     }
   }
 
@@ -332,9 +498,12 @@
   }
 
   async function excluirOperador(userId, userEmail) {
-    if (!confirm(`Confirma a exclusão definitiva do acesso do operador "${userEmail || userId}"?`)) {
-      return;
-    }
+    const confirmou = await confirmModal({
+      title: 'Excluir Operador',
+      desc: `Confirma a exclusão definitiva do acesso do operador "${userEmail || userId}"?`,
+      danger: true,
+    });
+    if (!confirmou) return;
 
     const token = window.AdminAuth?.getToken();
     if (!token) return;
@@ -352,14 +521,14 @@
       });
 
       const res = await resp.json().catch(() => ({}));
-      if (resp.ok && res.success) {
-        alert('Operador removido com sucesso.');
+      if (resp.ok && (res.success || res.ok)) {
+        showToast('success', 'Operador removido com sucesso.');
         renderizarListaUsuarios();
       } else {
-        alert(res.error || 'Erro ao remover operador.');
+        showToast('error', res.error?.message || res.error || 'Erro ao remover operador.');
       }
     } catch (err) {
-      alert('Erro de conexão ao remover operador.');
+      showToast('error', 'Erro de conexão ao remover operador.');
     }
   }
 
@@ -442,19 +611,84 @@
   }
 
   // ==========================================================================
-  // 3. BUSCA E PROCESSAMENTO DE LEADS (COM JWT REAL - A3)
+  // 3. BUSCA E PROCESSAMENTO DE LEADS COM PAGINAÇÃO, CACHE E SKELETON (C3)
   // ==========================================================================
-  async function carregarLeads() {
+  function debounce(fn, delay = 250) {
+    let timer = null;
+    return function (...args) {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn.apply(this, args), delay);
+    };
+  }
+
+  function mostrarSkeleton() {
+    if (!leadsTbody) return;
+    leadsTbody.innerHTML = '';
+    const fragment = document.createDocumentFragment();
+    for (let i = 0; i < 5; i++) {
+      const tr = document.createElement('tr');
+      tr.className = 'skeleton-row';
+      tr.innerHTML = `
+        <td><div class="skeleton-box md"></div></td>
+        <td><div class="skeleton-box lg"></div></td>
+        <td><div class="skeleton-box md"></div></td>
+        <td><div class="skeleton-box sm"></div></td>
+        <td><div class="skeleton-box sm" style="margin: 0 auto;"></div></td>
+        <td><div class="skeleton-box sm" style="margin-left: auto;"></div></td>
+        <td><div class="skeleton-box lg" style="margin-left: auto;"></div></td>
+      `;
+      fragment.appendChild(tr);
+    }
+    leadsTbody.appendChild(fragment);
+  }
+
+  function atualizarIndicadorCache() {
+    if (!cacheIndicator || !lastFetchTime) return;
+    const elapsedSec = Math.floor((Date.now() - lastFetchTime) / 1000);
+    if (elapsedSec < 5) {
+      cacheIndicator.textContent = '(Sincronizado agora)';
+    } else {
+      cacheIndicator.textContent = `(Atualizado há ${elapsedSec}s)`;
+    }
+  }
+
+  function iniciarTimerCache() {
+    if (cacheTimerInterval) clearInterval(cacheTimerInterval);
+    cacheTimerInterval = setInterval(atualizarIndicadorCache, 5000);
+  }
+
+  async function carregarLeads({ append = false, forceRefresh = false } = {}) {
     const token = window.AdminAuth?.getToken();
     if (!token) return;
 
-    leadsCounter.textContent = 'Sincronizando com Supabase...';
+    // Cache de 60s em memória (C3)
+    const agora = Date.now();
+    if (!append && !forceRefresh && leadsCache && agora - lastFetchTime < CACHE_TTL_MS) {
+      allLeads = leadsCache;
+      atualizarKpis(allLeads);
+      renderizarTabela({ append: false });
+      atualizarIndicadorCache();
+      return;
+    }
+
+    if (!append) {
+      leadsCounter.textContent = 'Carregando orçamentos...';
+      mostrarSkeleton();
+      if (emptyState) emptyState.classList.add('hidden');
+    }
+
     if (btnRefresh) btnRefresh.classList.add('loading');
-    let remoteLeads = [];
+    if (append && btnLoadMore) {
+      btnLoadMore.disabled = true;
+      btnLoadMore.classList.add('loading');
+    }
+
+    const pageToFetch = append ? currentPage + 1 : 1;
+    const termo = (searchInput?.value || '').trim();
+    const filtro = filterService?.value || 'todos';
 
     try {
-      const url = `${window.APP_CONFIG.SUPABASE_FUNCTIONS_URL}/salvar-lead`;
-      // A3: Envia JWT de autenticação real do Supabase Auth e remove headers bypass legados
+      const url = `${window.APP_CONFIG.SUPABASE_FUNCTIONS_URL}/salvar-lead?page=${pageToFetch}&limit=${pageSize}&q=${encodeURIComponent(termo)}&tipo=${encodeURIComponent(filtro)}`;
       const resp = await fetch(url, {
         method: 'GET',
         headers: {
@@ -464,45 +698,63 @@
       });
 
       if (resp.ok) {
-        const data = await resp.json();
-        remoteLeads = data.leads || [];
+        const rawData = await resp.json();
+        const parsed = parseLeads(rawData);
+        const novosLeads = parsed.leads || [];
+
+        currentPage = pageToFetch;
+        totalLeadsCount = parsed.meta?.total !== undefined ? parsed.meta.total : novosLeads.length;
+
+        if (append) {
+          allLeads = allLeads.concat(novosLeads);
+        } else {
+          allLeads = novosLeads;
+          leadsCache = allLeads;
+          lastFetchTime = Date.now();
+          iniciarTimerCache();
+        }
+
+        atualizarKpis(allLeads);
+        renderizarTabela({ append });
+        atualizarIndicadorCache();
       } else if (resp.status === 401) {
-        console.warn('[admin] Sessão expirada ou não autorizada ao carregar leads (401).');
+        showToast('error', 'Sessão expirada. Faça login novamente.');
         await window.AdminAuth?.signOut();
         await verificarAutenticacao();
         return;
+      } else {
+        throw new Error(`Erro do servidor: status ${resp.status}`);
       }
     } catch (err) {
-      console.warn('Não foi possível conectar ao endpoint remoto de leads:', err);
+      console.warn('Erro ao carregar orçamentos:', err);
+      showToast('error', 'Falha ao sincronizar orçamentos do servidor.', {
+        label: 'Recarregar',
+        onClick: () => carregarLeads({ forceRefresh: true }),
+      });
+
+      if (!append && allLeads.length === 0) {
+        if (leadsTbody) leadsTbody.innerHTML = '';
+        if (emptyState) {
+          emptyState.classList.remove('hidden');
+          emptyState.innerHTML = `
+            <div class="empty-icon-circle">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+            </div>
+            <h3 class="empty-title">Falha de comunicação</h3>
+            <p class="empty-desc">Não foi possível carregar os dados no momento.</p>
+            <button type="button" id="btn-empty-retry" class="btn-primary" style="margin-top: 12px;">Recarregar</button>
+          `;
+          const btnRetry = emptyState.querySelector('#btn-empty-retry');
+          if (btnRetry) btnRetry.addEventListener('click', () => carregarLeads({ forceRefresh: true }));
+        }
+      }
     } finally {
       if (btnRefresh) btnRefresh.classList.remove('loading');
-    }
-
-    // Mesclar com leads em cache do localStorage para visualização imediata
-    let localLeads = [];
-    try {
-      localLeads = JSON.parse(localStorage.getItem('orcamento_local_leads') || '[]');
-    } catch {
-      localLeads = [];
-    }
-
-    // Deduplicação por id ou combinação nome+telefone
-    const leadMap = new Map();
-    [...remoteLeads, ...localLeads].forEach((item) => {
-      const key = item.id || `${item.nome}_${item.telefone}`;
-      if (!leadMap.has(key)) {
-        leadMap.set(key, item);
+      if (btnLoadMore) {
+        btnLoadMore.disabled = false;
+        btnLoadMore.classList.remove('loading');
       }
-    });
-
-    allLeads = Array.from(leadMap.values()).sort((a, b) => {
-      const da = new Date(a.created_at || 0).getTime();
-      const db = new Date(b.created_at || 0).getTime();
-      return db - da;
-    });
-
-    atualizarKpis(allLeads);
-    renderizarTabela();
+    }
   }
 
   // ==========================================================================
@@ -550,32 +802,37 @@
     }
   }
 
-  function renderizarTabela() {
-    const termo = (searchInput?.value || '').toLowerCase().trim();
-    const filtro = filterService?.value || 'todos';
+  function renderizarTabela({ append = false } = {}) {
+    const totalExibidos = allLeads.length;
+    leadsCounter.textContent = `${totalExibidos} orçamento(s) localizado(s)`;
 
-    const leadsFiltrados = allLeads.filter((l) => {
-      const matchTermo =
-        !termo ||
-        (l.nome && l.nome.toLowerCase().includes(termo)) ||
-        (l.telefone && l.telefone.includes(termo));
+    if (paginationInfo) {
+      paginationInfo.textContent = `Exibindo ${totalExibidos} de ${totalLeadsCount} orçamentos`;
+    }
 
-      const matchFiltro = filtro === 'todos' || l.tipo_servico === filtro;
-      return matchTermo && matchFiltro;
-    });
+    if (btnLoadMore) {
+      if (totalExibidos < totalLeadsCount) {
+        btnLoadMore.classList.remove('hidden');
+      } else {
+        btnLoadMore.classList.add('hidden');
+      }
+    }
 
-    leadsCounter.textContent = `${leadsFiltrados.length} orçamento(s) localizado(s)`;
-
-    if (leadsFiltrados.length === 0) {
-      leadsTbody.innerHTML = '';
-      emptyState.classList.remove('hidden');
+    if (totalExibidos === 0) {
+      if (leadsTbody) leadsTbody.innerHTML = '';
+      if (emptyState) emptyState.classList.remove('hidden');
       return;
     }
 
-    emptyState.classList.add('hidden');
-    leadsTbody.innerHTML = '';
+    if (emptyState) emptyState.classList.add('hidden');
+    if (!append && leadsTbody) leadsTbody.innerHTML = '';
 
-    leadsFiltrados.forEach((lead) => {
+    // DocumentFragment para performance óptima e INP < 200ms (C3)
+    const fragment = document.createDocumentFragment();
+
+    const leadsParaRenderizar = append ? allLeads.slice(allLeads.length - pageSize) : allLeads;
+
+    leadsParaRenderizar.forEach((lead) => {
       const tr = document.createElement('tr');
 
       const dataObj = lead.created_at ? new Date(lead.created_at) : new Date();
@@ -611,8 +868,10 @@
 
       tr.innerHTML = `
         <td class="font-mono text-muted text-xs">
-          <div>${dataFormatada}</div>
-          <div style="opacity: 0.7;">${horaFormatada}</div>
+          <time datetime="${dataObj.toISOString()}">
+            <div>${dataFormatada}</div>
+            <div style="opacity: 0.7;">${horaFormatada}</div>
+          </time>
         </td>
         <td>
           <span class="client-name">${escapeHtml(lead.nome || 'Cliente')}</span>
@@ -621,12 +880,15 @@
           <span class="font-mono text-secondary">${escapeHtml(lead.telefone || 'Não informado')}</span>
         </td>
         <td>
-          <span class="badge-service ${classeBadge}">${nomeServico}</span>
+          <span class="badge-service ${classeBadge}">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="margin-right: 4px; vertical-align: -1px;"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>
+            ${nomeServico}
+          </span>
         </td>
-        <td style="text-align: center;" class="font-mono font-semibold">${lead.quantidade_comodos}</td>
-        <td style="text-align: right;" class="font-mono font-bold text-emerald">${valorFormatado}</td>
+        <td style="text-align: center;" class="font-mono font-semibold" aria-label="${lead.quantidade_comodos} cômodos">${lead.quantidade_comodos}</td>
+        <td style="text-align: right;" class="font-mono font-bold text-emerald" aria-label="Valor ${valorFormatado}">${valorFormatado}</td>
         <td style="text-align: right;">
-          <a href="${urlWhats}" target="_blank" rel="noopener noreferrer" class="btn-whatsapp-solid" title="Iniciar atendimento via WhatsApp">
+          <a href="${urlWhats}" target="_blank" rel="noopener noreferrer" class="btn-whatsapp-solid" title="Iniciar atendimento via WhatsApp" aria-label="Conversar no WhatsApp com ${escapeHtml(lead.nome || 'Cliente')}">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
               <path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.582 2.128 2.182-.573c.978.58 1.911.928 3.145.929 3.178 0 5.767-2.587 5.768-5.766.001-3.187-2.575-5.771-5.764-5.771zm3.392 8.244c-.144.405-.837.774-1.17.824-.299.045-.677.063-1.092-.069-.252-.08-.575-.187-.988-.365-1.739-.751-2.874-2.502-2.961-2.617-.087-.116-.708-.94-.708-1.793s.448-1.273.607-1.446c.159-.173.346-.217.462-.217l.332.006c.106.005.249-.04.39.298.144.347.491 1.2.534 1.287.043.087.072.188.014.304-.058.116-.087.188-.173.289l-.26.304c-.087.086-.177.18-.076.354.101.174.449.741.964 1.201.662.591 1.221.774 1.394.86s.274.072.376-.043c.101-.116.433-.506.549-.68.116-.173.231-.145.39-.087s1.011.477 1.184.564.289.13.332.202c.043.073.043.419-.101.824z"/>
             </svg>
@@ -635,8 +897,10 @@
         </td>
       `;
 
-      leadsTbody.appendChild(tr);
+      fragment.appendChild(tr);
     });
+
+    leadsTbody.appendChild(fragment);
   }
 
   function escapeHtml(str) {
@@ -647,27 +911,49 @@
       .replace(/"/g, '&quot;');
   }
 
-  // Interatividade com os Filter Pills
+  // Interatividade com os Filter Pills com aria-pressed (M5, C4)
   if (filterPillsContainer) {
     filterPillsContainer.addEventListener('click', (e) => {
       const btn = e.target.closest('.filter-pill');
       if (!btn) return;
 
-      filterPillsContainer.querySelectorAll('.filter-pill').forEach((p) => p.classList.remove('active'));
+      filterPillsContainer.querySelectorAll('.filter-pill').forEach((p) => {
+        p.classList.remove('active');
+        p.setAttribute('aria-pressed', 'false');
+      });
       btn.classList.add('active');
+      btn.setAttribute('aria-pressed', 'true');
 
       const filterVal = btn.getAttribute('data-filter');
       if (filterService) {
         filterService.value = filterVal;
       }
-      renderizarTabela();
+      currentPage = 1;
+      carregarLeads({ forceRefresh: true });
     });
   }
 
-  // Listeners do Dashboard
-  if (btnRefresh) btnRefresh.addEventListener('click', carregarLeads);
-  if (searchInput) searchInput.addEventListener('input', renderizarTabela);
-  if (filterService) filterService.addEventListener('change', renderizarTabela);
+  // Botão Carregar Mais (C3)
+  if (btnLoadMore) {
+    btnLoadMore.addEventListener('click', () => {
+      carregarLeads({ append: true });
+    });
+  }
+
+  // Listeners do Dashboard com debounce de 250ms na busca (C3)
+  if (btnRefresh) btnRefresh.addEventListener('click', () => carregarLeads({ forceRefresh: true }));
+  if (searchInput) {
+    searchInput.addEventListener('input', debounce(() => {
+      currentPage = 1;
+      carregarLeads({ forceRefresh: true });
+    }, 250));
+  }
+  if (filterService) {
+    filterService.addEventListener('change', () => {
+      currentPage = 1;
+      carregarLeads({ forceRefresh: true });
+    });
+  }
 
   // Inicialização: checa autenticação imediatamente via Supabase Auth
   verificarAutenticacao();
