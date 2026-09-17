@@ -1,6 +1,6 @@
 // ============================================================================
 // PROJETO: O Orçamento na Hora (SENAI-SP)
-// JAVASCRIPT DO PAINEL ADMINISTRATIVO COM AUTENTICAÇÃO (admin.js)
+// JAVASCRIPT DO PAINEL ADMINISTRATIVO COM AUTENTICAÇÃO SUPABASE AUTH (admin.js)
 // PADRÃO HIGH-CONTRAST MODERN SAAS / SWISS INDUSTRIAL
 // ============================================================================
 
@@ -8,31 +8,16 @@
   'use strict';
 
   // ==========================================================================
-  // ELEMENTOS DE AUTENTICAÇÃO, CADASTRO & GESTÃO DE USUÁRIOS
+  // ELEMENTOS DE AUTENTICAÇÃO & GESTÃO DE USUÁRIOS
   // ==========================================================================
   const loginGate = document.getElementById('login-gate');
   const adminDashboard = document.getElementById('admin-dashboard');
   const loginForm = document.getElementById('login-form');
-  const loginUsername = document.getElementById('login-username');
+  const loginEmail = document.getElementById('login-email');
   const loginPassword = document.getElementById('login-password');
   const loginError = document.getElementById('login-error');
   const loginErrorText = document.getElementById('login-error-text');
   const btnLogout = document.getElementById('btn-logout');
-
-  // Abas e Formulário de Cadastro na Tela de Entrada
-  const tabLogin = document.getElementById('tab-login');
-  const tabRegister = document.getElementById('tab-register');
-  const btnGotoRegister = document.getElementById('btn-goto-register');
-  const btnGotoLogin = document.getElementById('btn-goto-login');
-  const registerForm = document.getElementById('register-form');
-  const registerFeedback = document.getElementById('register-feedback');
-  const registerFeedbackIcon = document.getElementById('register-feedback-icon');
-  const registerFeedbackMsg = document.getElementById('register-feedback-msg');
-  const regNome = document.getElementById('reg-nome');
-  const regUsername = document.getElementById('reg-username');
-  const regCargo = document.getElementById('reg-cargo');
-  const regPassword = document.getElementById('reg-password');
-  const regPasswordConfirm = document.getElementById('reg-password-confirm');
 
   // Indicador de Usuário no Header
   const activeUserName = document.getElementById('active-user-name');
@@ -50,7 +35,7 @@
   const modalUsersCount = document.getElementById('modal-users-count');
   const modalUserForm = document.getElementById('modal-user-form');
   const modalRegNome = document.getElementById('modal-reg-nome');
-  const modalRegUsername = document.getElementById('modal-reg-username');
+  const modalRegEmail = document.getElementById('modal-reg-email');
   const modalRegCargo = document.getElementById('modal-reg-cargo');
   const modalRegPassword = document.getElementById('modal-reg-password');
   const btnCancelAddUser = document.getElementById('btn-cancel-add-user');
@@ -75,9 +60,6 @@
 
   let allLeads = [];
 
-  // Chave de armazenamento persistente no LocalStorage
-  const USERS_STORAGE_KEY = 'orcamento_admin_users';
-
   // Exibir a data corrente no header corporativo
   if (currentDateBadge) {
     const hoje = new Date();
@@ -89,251 +71,19 @@
   }
 
   // ==========================================================================
-  // 1. GERENCIAMENTO DE USUÁRIOS & CRIPTOGRAFIA DE SENHAS (SHA-256)
+  // 1. GERENCIAMENTO DE AUTENTICAÇÃO E SESSÃO (SUPABASE AUTH REAL - A1)
   // ==========================================================================
-  const SENHA_SALT = 'valdir_pintor_salt_2026_';
-
-  /**
-   * Gera hash SHA-256 seguro com salt usando a Web Crypto API nativa do navegador
-   */
-  async function gerarHashSenha(senha, salt = SENHA_SALT) {
-    if (window.crypto && window.crypto.subtle) {
-      try {
-        const encoder = new TextEncoder();
-        const data = encoder.encode(salt + senha);
-        const hashBuffer = await window.crypto.subtle.digest('SHA-256', data);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
-      } catch (e) {
-        console.warn('Falha na Web Crypto API, utilizando hash alternativo:', e);
-      }
-    }
-    // Fallback de contingência
-    let hash = 0;
-    const str = salt + senha;
-    for (let i = 0; i < str.length; i++) {
-      hash = (hash << 5) - hash + str.charCodeAt(i);
-      hash |= 0;
-    }
-    return `sha_fallback_${Math.abs(hash).toString(16)}`;
-  }
-
-  function carregarUsuarios() {
-    let users = [];
-    try {
-      users = JSON.parse(localStorage.getItem(USERS_STORAGE_KEY) || '[]');
-    } catch {
-      users = [];
-    }
-
-    // Garantir que a conta master oficial (admin/admin) sempre exista como âncora
-    const temMaster = users.some((u) => (u.username || '').toLowerCase() === 'admin');
-    if (!temMaster) {
-      users.unshift({
-        id: 'usr_master_valdir',
-        nome: 'Valdir Pintor (Master)',
-        username: 'admin',
-        // Hash SHA-256 de "admin" com o salt
-        passwordHash: 'c4e439bb726588265a711462cebe2bb2b453a2a6b297b819fef63428d05541e2',
-        cargo: 'Administrador',
-        created_at: '2026-09-15T00:00:00.000Z',
-        isMaster: true,
-      });
-      salvarUsuarios(users);
-    }
-    return users;
-  }
-
-  function salvarUsuarios(users) {
-    try {
-      localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
-    } catch (err) {
-      console.error('Erro ao gravar usuários no LocalStorage:', err);
-    }
-  }
-
-  async function cadastrarUsuario({ nome, username, cargo, password }) {
-    const nomeLimpo = (nome || '').trim();
-    const userLimpo = (username || '').trim().toLowerCase();
-    const cargoLimpo = (cargo || 'Administrador').trim();
-    const passLimpo = (password || '').trim();
-
-    if (!nomeLimpo || !userLimpo || !passLimpo) {
-      return { success: false, message: 'Preencha todos os campos obrigatórios.' };
-    }
-
-    // Validação de formato do nome de usuário
-    if (userLimpo.length < 3) {
-      return { success: false, message: 'O nome de usuário deve ter no mínimo 3 caracteres.' };
-    }
-
-    if (!/^[a-z0-9_.-]+$/.test(userLimpo)) {
-      return { success: false, message: 'O usuário deve conter apenas letras, números, ponto ou underline.' };
-    }
-
-    if (passLimpo.length < 4) {
-      return { success: false, message: 'A senha deve conter no mínimo 4 caracteres.' };
-    }
-
-    const users = carregarUsuarios();
-    const duplicado = users.some((u) => (u.username || '').toLowerCase() === userLimpo);
-    if (duplicado) {
-      return { success: false, message: `O usuário "${userLimpo}" já está cadastrado. Escolha outro.` };
-    }
-
-    // Armazenar apenas o HASH criptográfico da senha (nunca a senha em texto puro)
-    const hashCalculado = await gerarHashSenha(passLimpo);
-
-    const novoUsuario = {
-      id: `usr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      nome: nomeLimpo,
-      username: userLimpo,
-      cargo: cargoLimpo,
-      passwordHash: hashCalculado,
-      created_at: new Date().toISOString(),
-      isMaster: false,
-    };
-
-    users.push(novoUsuario);
-    salvarUsuarios(users);
-
-    return {
-      success: true,
-      message: `Usuário "${userLimpo}" cadastrado com sucesso!`,
-      user: novoUsuario,
-    };
-  }
-
-  async function autenticarUsuario(username, password) {
-    const userLimpo = (username || '').trim().toLowerCase();
-    const passLimpo = (password || '').trim();
-
-    const users = carregarUsuarios();
-    const hashDigitado = await gerarHashSenha(passLimpo);
-
-    let usuarioEncontrado = null;
-    let precisaAtualizar = false;
-
-    for (const u of users) {
-      if ((u.username || '').toLowerCase() === userLimpo) {
-        // Checagem segura via hash
-        if (u.passwordHash && u.passwordHash === hashDigitado) {
-          usuarioEncontrado = u;
-          break;
-        }
-        // Migração automática de senhas antigas em texto puro para hash
-        if (u.password && (u.password === passLimpo || (userLimpo === 'admin' && passLimpo === 'admin'))) {
-          u.passwordHash = hashDigitado;
-          delete u.password;
-          precisaAtualizar = true;
-          usuarioEncontrado = u;
-          break;
-        }
-      }
-    }
-
-    if (precisaAtualizar) {
-      salvarUsuarios(users);
-    }
-
-    return usuarioEncontrado;
-  }
-
-  function estaAutenticado() {
-    const autenticado = sessionStorage.getItem('admin_auth') === 'true';
-    if (!autenticado) return false;
-
-    // Checagem de expiração da sessão (4 horas de inatividade máxima)
-    const expiraEm = Number(sessionStorage.getItem('admin_session_expires') || 0);
-    if (expiraEm && Date.now() > expiraEm) {
-      sessionStorage.removeItem('admin_auth');
-      sessionStorage.removeItem('admin_user');
-      sessionStorage.removeItem('admin_session_expires');
-      return false;
-    }
-
-    return true;
-  }
-
-  function obterUsuarioAtivo() {
-    try {
-      return JSON.parse(sessionStorage.getItem('admin_user') || 'null');
-    } catch {
-      return null;
-    }
-  }
-
-  function definirUsuarioAtivo(user) {
-    sessionStorage.setItem('admin_auth', 'true');
-    // Sessão válida por 4 horas
-    sessionStorage.setItem('admin_session_expires', String(Date.now() + 4 * 60 * 60 * 1000));
-    sessionStorage.setItem(
-      'admin_user',
-      JSON.stringify({
-        id: user.id,
-        nome: user.nome,
-        username: user.username,
-        cargo: user.cargo,
-        isMaster: user.isMaster || false,
-      })
-    );
-  }
-
-  function atualizarBadgeUsuarioAtivo() {
-    const user = obterUsuarioAtivo();
+  function atualizarBadgeUsuarioAtivo(user) {
     if (user) {
-      if (activeUserName) activeUserName.textContent = user.nome || user.username;
-      if (activeUserRole) activeUserRole.textContent = user.cargo || 'Operador';
+      if (activeUserName) activeUserName.textContent = user.nome || user.email || 'Operador';
+      if (activeUserRole) {
+        const cargoMap = { admin: 'Administrador', atendente: 'Atendente', pintor: 'Pintor' };
+        activeUserRole.textContent = cargoMap[user.role] || user.role || 'Operador';
+      }
     } else {
-      if (activeUserName) activeUserName.textContent = 'Admin';
-      if (activeUserRole) activeUserRole.textContent = 'Master';
+      if (activeUserName) activeUserName.textContent = 'Operador';
+      if (activeUserRole) activeUserRole.textContent = 'Acesso Restrito';
     }
-  }
-
-  // ==========================================================================
-  // 2. TELA DE LOGIN & CADASTRO (LOGIN GATE)
-  // ==========================================================================
-  function mostrarTabLogin() {
-    if (tabLogin) {
-      tabLogin.classList.add('active');
-      tabLogin.setAttribute('aria-selected', 'true');
-    }
-    if (tabRegister) {
-      tabRegister.classList.remove('active');
-      tabRegister.setAttribute('aria-selected', 'false');
-    }
-    if (loginForm) loginForm.classList.remove('hidden');
-    if (registerForm) registerForm.classList.add('hidden');
-    if (loginError) loginError.classList.add('hidden');
-  }
-
-  function mostrarTabCadastro() {
-    if (tabRegister) {
-      tabRegister.classList.add('active');
-      tabRegister.setAttribute('aria-selected', 'true');
-    }
-    if (tabLogin) {
-      tabLogin.classList.remove('active');
-      tabLogin.setAttribute('aria-selected', 'false');
-    }
-    if (registerForm) registerForm.classList.remove('hidden');
-    if (loginForm) loginForm.classList.add('hidden');
-    limparFeedbackCadastro();
-    if (regNome) setTimeout(() => regNome.focus(), 50);
-  }
-
-  function exibirFeedbackCadastro(tipo, msg) {
-    if (!registerFeedback || !registerFeedbackMsg) return;
-    registerFeedback.className = `login-feedback-box ${tipo}`;
-    registerFeedbackMsg.textContent = msg;
-    registerFeedback.classList.remove('hidden');
-  }
-
-  function limparFeedbackCadastro() {
-    if (!registerFeedback) return;
-    registerFeedback.classList.add('hidden');
-    registerFeedback.className = 'login-feedback-box hidden';
-    if (registerFeedbackMsg) registerFeedbackMsg.textContent = '';
   }
 
   function mostrarErroLogin(msg) {
@@ -342,108 +92,87 @@
     loginError.classList.remove('hidden');
   }
 
-  function verificarAutenticacao() {
-    if (estaAutenticado()) {
+  /**
+   * Validação rigorosa de autenticação (A1):
+   * Depende exclusivamente de sessão válida e verificada no Supabase Auth via getUser().
+   * Tentativas de burlar via `sessionStorage.setItem('admin_auth', 'true')` no console
+   * não têm efeito, pois esta chave NÃO é utilizada para liberar acesso.
+   */
+  async function verificarAutenticacao() {
+    if (!window.AdminAuth) {
+      console.error('[admin] Módulo AdminAuth não carregado.');
+      return;
+    }
+
+    const user = await window.AdminAuth.getUser();
+
+    if (user) {
       loginGate.classList.add('hidden');
       adminDashboard.classList.remove('hidden');
-      atualizarBadgeUsuarioAtivo();
-      carregarLeads();
+      atualizarBadgeUsuarioAtivo(user);
+      await carregarLeads();
     } else {
       adminDashboard.classList.add('hidden');
       loginGate.classList.remove('hidden');
-      mostrarTabLogin();
-      if (loginUsername) {
-        setTimeout(() => loginUsername.focus(), 50);
+      if (loginEmail) {
+        setTimeout(() => loginEmail.focus(), 50);
       }
     }
   }
 
-  // Listeners de alternância de abas no login gate
-  if (tabLogin) tabLogin.addEventListener('click', mostrarTabLogin);
-  if (tabRegister) tabRegister.addEventListener('click', mostrarTabCadastro);
-  if (btnGotoRegister) btnGotoRegister.addEventListener('click', mostrarTabCadastro);
-  if (btnGotoLogin) btnGotoLogin.addEventListener('click', mostrarTabLogin);
-
-  // Submissão do Formulário de Login
+  // Submissão do Formulário de Login com Proteção contra Força Bruta
   if (loginForm) {
     loginForm.addEventListener('submit', async function (e) {
       e.preventDefault();
-      const usuario = (loginUsername.value || '').trim();
-      const senha = (loginPassword.value || '').trim();
+      const email = (loginEmail?.value || '').trim();
+      const senha = (loginPassword?.value || '').trim();
 
-      if (!usuario || !senha) {
-        mostrarErroLogin('Preencha os campos de usuário e senha para acessar.');
+      if (!email || !senha) {
+        mostrarErroLogin('Preencha os campos de e-mail e senha para acessar.');
         return;
       }
 
-      const userAutenticado = await autenticarUsuario(usuario, senha);
-      if (userAutenticado) {
+      const btnSubmit = document.getElementById('btn-login-submit');
+      if (btnSubmit) {
+        btnSubmit.disabled = true;
+        btnSubmit.classList.add('loading');
+      }
+
+      try {
+        await window.AdminAuth.signInWithPassword(email, senha);
         loginError.classList.add('hidden');
-        definirUsuarioAtivo(userAutenticado);
-        loginPassword.value = '';
-        verificarAutenticacao();
-      } else {
-        mostrarErroLogin('Credenciais inválidas. Verifique o usuário e a senha.');
-        loginPassword.value = '';
-        loginPassword.focus();
+        if (loginPassword) loginPassword.value = '';
+        await verificarAutenticacao();
+      } catch (err) {
+        mostrarErroLogin(err.message || 'Credenciais inválidas. Verifique os dados informados.');
+        if (loginPassword) {
+          loginPassword.value = '';
+          loginPassword.focus();
+        }
+      } finally {
+        if (btnSubmit) {
+          btnSubmit.disabled = false;
+          btnSubmit.classList.remove('loading');
+        }
       }
     });
   }
 
-  // Submissão do Formulário de Cadastro na Tela Inicial
-  if (registerForm) {
-    registerForm.addEventListener('submit', async function (e) {
-      e.preventDefault();
-      const nome = (regNome.value || '').trim();
-      const username = (regUsername.value || '').trim();
-      const cargo = (regCargo.value || 'Administrador').trim();
-      const pass = (regPassword.value || '').trim();
-      const passConf = (regPasswordConfirm.value || '').trim();
-
-      if (!nome || !username || !pass || !passConf) {
-        exibirFeedbackCadastro('error', 'Preencha todos os campos do formulário.');
-        return;
-      }
-
-      if (pass !== passConf) {
-        exibirFeedbackCadastro('error', 'As senhas não coincidem. Digite novamente.');
-        regPasswordConfirm.value = '';
-        regPasswordConfirm.focus();
-        return;
-      }
-
-      const resultado = await cadastrarUsuario({ nome, username, cargo, password: pass });
-      if (resultado.success) {
-        exibirFeedbackCadastro('success', `${resultado.message} Redirecionando para login...`);
-        registerForm.reset();
-        setTimeout(() => {
-          mostrarTabLogin();
-          if (loginUsername) loginUsername.value = username;
-          if (loginPassword) {
-            loginPassword.value = '';
-            loginPassword.focus();
-          }
-        }, 1200);
-      } else {
-        exibirFeedbackCadastro('error', resultado.message);
-      }
-    });
-  }
-
-  // Logout
+  // Logout com invalidação server-side
   if (btnLogout) {
-    btnLogout.addEventListener('click', function () {
-      sessionStorage.removeItem('admin_auth');
-      sessionStorage.removeItem('admin_user');
-      if (loginUsername) loginUsername.value = '';
+    btnLogout.addEventListener('click', async function () {
+      if (window.AdminAuth) {
+        await window.AdminAuth.signOut();
+      }
+      if (loginEmail) loginEmail.value = '';
       if (loginPassword) loginPassword.value = '';
       loginError.classList.add('hidden');
-      verificarAutenticacao();
+      await verificarAutenticacao();
     });
   }
 
   // ==========================================================================
-  // 3. MODAL DE GESTÃO DE USUÁRIOS NO DASHBOARD
+  // 2. MODAL DE GESTÃO DE OPERADORES NO DASHBOARD (ADMIN REAL - A2)
   // ==========================================================================
   function abrirModalUsuarios() {
     if (usersModal) {
@@ -492,92 +221,146 @@
     if (modalUserFeedbackMsg) modalUserFeedbackMsg.textContent = '';
   }
 
-  function renderizarListaUsuarios() {
-    const users = carregarUsuarios();
-    const userAtivo = obterUsuarioAtivo();
+  /**
+   * Consulta a lista de operadores registrados no backend
+   */
+  async function renderizarListaUsuarios() {
+    const token = window.AdminAuth?.getToken();
+    if (!token) return;
 
-    if (modalUsersCount) modalUsersCount.textContent = users.length;
     if (!usersTbody) return;
+    usersTbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 16px; color: var(--text-muted);">Carregando operadores...</td></tr>';
 
-    usersTbody.innerHTML = '';
-    users.forEach((u) => {
-      const tr = document.createElement('tr');
-      const dataObj = u.created_at ? new Date(u.created_at) : new Date();
-      const dataFormatada = dataObj.toLocaleDateString('pt-BR', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
+    try {
+      const url = `${window.APP_CONFIG.SUPABASE_FUNCTIONS_URL}/salvar-lead`;
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'apikey': window.APP_CONFIG.SUPABASE_ANON_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ action: 'list_users' }),
       });
 
-      const roleClass =
-        u.cargo === 'Administrador'
-          ? 'role-admin'
-          : u.cargo === 'Atendente'
-          ? 'role-atendente'
-          : 'role-pintor';
+      if (!resp.ok) {
+        usersTbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 16px; color: var(--accent-danger);">Não foi possível carregar a lista de operadores.</td></tr>';
+        return;
+      }
 
-      const isCurrent = userAtivo && userAtivo.username.toLowerCase() === (u.username || '').toLowerCase();
-      const isMaster = u.isMaster || (u.username || '').toLowerCase() === 'admin';
+      const data = await resp.json();
+      const users = data.users || [];
+      const userAtivo = window.AdminAuth?.getSession()?.user;
 
-      tr.innerHTML = `
-        <td>
-          <span class="font-mono font-semibold">${escapeHtml(u.username)}</span>
-          ${isCurrent ? '<span style="font-size: 0.68rem; color: var(--brand-primary); font-weight: 600; margin-left: 4px;">(você)</span>' : ''}
-        </td>
-        <td>${escapeHtml(u.nome || u.username)}</td>
-        <td>
-          <span class="badge-role ${roleClass}">${escapeHtml(u.cargo || 'Operador')}</span>
-        </td>
-        <td class="font-mono text-muted text-xs">${dataFormatada}</td>
-        <td style="text-align: right;">
-          <button
-            type="button"
-            class="btn-delete-user"
-            data-username="${escapeHtml(u.username)}"
-            ${isMaster || isCurrent ? 'disabled title="Conta protegida contra exclusão"' : 'title="Remover acesso deste usuário"'}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="3 6 5 6 21 6"></polyline>
-              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-            </svg>
-            <span>Excluir</span>
-          </button>
-        </td>
-      `;
+      if (modalUsersCount) modalUsersCount.textContent = users.length;
+      usersTbody.innerHTML = '';
 
-      usersTbody.appendChild(tr);
-    });
+      if (users.length === 0) {
+        usersTbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 16px; color: var(--text-muted);">Nenhum operador adicional cadastrado.</td></tr>';
+        return;
+      }
 
-    // Eventos de exclusão de usuário
-    usersTbody.querySelectorAll('.btn-delete-user:not([disabled])').forEach((btn) => {
-      btn.addEventListener('click', function () {
-        const usernameParaExcluir = this.getAttribute('data-username');
-        if (usernameParaExcluir) {
-          excluirUsuario(usernameParaExcluir);
-        }
+      users.forEach((u) => {
+        const tr = document.createElement('tr');
+        const dataObj = u.created_at ? new Date(u.created_at) : new Date();
+        const dataFormatada = dataObj.toLocaleDateString('pt-BR', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+        });
+
+        const roleClass =
+          u.role === 'admin'
+            ? 'role-admin'
+            : u.role === 'atendente'
+            ? 'role-atendente'
+            : 'role-pintor';
+
+        const cargoLabel =
+          u.role === 'admin'
+            ? 'Administrador'
+            : u.role === 'atendente'
+            ? 'Atendente'
+            : 'Pintor';
+
+        const isCurrent = userAtivo && (userAtivo.id === u.id || userAtivo.email === u.email);
+
+        tr.innerHTML = `
+          <td>
+            <span class="font-mono font-semibold">${escapeHtml(u.email || u.id)}</span>
+            ${isCurrent ? '<span style="font-size: 0.68rem; color: var(--brand-primary); font-weight: 600; margin-left: 4px;">(você)</span>' : ''}
+          </td>
+          <td>${escapeHtml(u.nome || u.email)}</td>
+          <td>
+            <span class="badge-role ${roleClass}">${escapeHtml(cargoLabel)}</span>
+          </td>
+          <td class="font-mono text-muted text-xs">${dataFormatada}</td>
+          <td style="text-align: right;">
+            <button
+              type="button"
+              class="btn-delete-user"
+              data-id="${escapeHtml(u.id)}"
+              data-email="${escapeHtml(u.email || '')}"
+              ${isCurrent ? 'disabled title="Não é possível excluir a própria conta logada"' : 'title="Remover operador"'}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+              <span>Excluir</span>
+            </button>
+          </td>
+        `;
+
+        usersTbody.appendChild(tr);
       });
-    });
+
+      // Eventos de exclusão de operador
+      usersTbody.querySelectorAll('.btn-delete-user:not([disabled])').forEach((btn) => {
+        btn.addEventListener('click', function () {
+          const userId = this.getAttribute('data-id');
+          const userEmail = this.getAttribute('data-email');
+          if (userId) {
+            excluirOperador(userId, userEmail);
+          }
+        });
+      });
+    } catch (e) {
+      console.warn('[admin] Erro ao listar usuários:', e);
+      usersTbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 16px; color: var(--accent-danger);">Erro de comunicação com o servidor.</td></tr>';
+    }
   }
 
-  function excluirUsuario(username) {
-    const userAtivo = obterUsuarioAtivo();
-    if (userAtivo && userAtivo.username.toLowerCase() === username.toLowerCase()) {
-      alert('Não é possível excluir a conta atualmente conectada.');
-      return;
-    }
-    if (username.toLowerCase() === 'admin') {
-      alert('A conta de administrador raiz não pode ser excluída.');
+  async function excluirOperador(userId, userEmail) {
+    if (!confirm(`Confirma a exclusão definitiva do acesso do operador "${userEmail || userId}"?`)) {
       return;
     }
 
-    if (!confirm(`Confirma a exclusão definitiva do usuário "${username}"?`)) {
-      return;
-    }
+    const token = window.AdminAuth?.getToken();
+    if (!token) return;
 
-    let users = carregarUsuarios();
-    users = users.filter((u) => (u.username || '').toLowerCase() !== username.toLowerCase());
-    salvarUsuarios(users);
-    renderizarListaUsuarios();
+    try {
+      const url = `${window.APP_CONFIG.SUPABASE_FUNCTIONS_URL}/salvar-lead`;
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'apikey': window.APP_CONFIG.SUPABASE_ANON_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ action: 'delete_user', user_id: userId }),
+      });
+
+      const res = await resp.json().catch(() => ({}));
+      if (resp.ok && res.success) {
+        alert('Operador removido com sucesso.');
+        renderizarListaUsuarios();
+      } else {
+        alert(res.error || 'Erro ao remover operador.');
+      }
+    } catch (err) {
+      alert('Erro de conexão ao remover operador.');
+    }
   }
 
   // Listeners do Modal de Usuários
@@ -587,45 +370,83 @@
   if (modalTabAdd) modalTabAdd.addEventListener('click', () => mostrarSecaoModal('add'));
   if (btnCancelAddUser) btnCancelAddUser.addEventListener('click', () => mostrarSecaoModal('list'));
 
-  // Fechar modal ao clicar fora do card
   if (usersModal) {
     usersModal.addEventListener('click', (e) => {
       if (e.target === usersModal) fecharModalUsuarios();
     });
   }
 
-  // Cadastro de novo usuário via modal
+  // Cadastro de novo operador via modal com validação de política de senha
   if (modalUserForm) {
     modalUserForm.addEventListener('submit', async function (e) {
       e.preventDefault();
-      const nome = (modalRegNome.value || '').trim();
-      const username = (modalRegUsername.value || '').trim();
-      const cargo = (modalRegCargo.value || 'Administrador').trim();
-      const pass = (modalRegPassword.value || '').trim();
+      const nome = (modalRegNome?.value || '').trim();
+      const email = (modalRegEmail?.value || '').trim().toLowerCase();
+      const cargo = (modalRegCargo?.value || 'Atendente').trim();
+      const pass = (modalRegPassword?.value || '').trim();
 
-      if (!nome || !username || !pass) {
+      if (!nome || !email || !pass) {
         exibirFeedbackModal('error', 'Preencha todos os campos do formulário.');
         return;
       }
 
-      const res = await cadastrarUsuario({ nome, username, cargo, password: pass });
-      if (res.success) {
-        exibirFeedbackModal('success', res.message);
-        modalUserForm.reset();
-        setTimeout(() => {
-          mostrarSecaoModal('list');
-        }, 900);
-      } else {
-        exibirFeedbackModal('error', res.message);
+      // Validação estrita da política de senhas (min 12 caracteres + complexidade - A2)
+      const avaliacao = window.AdminAuth?.avaliarComplexidadeSenha(pass);
+      if (avaliacao && !avaliacao.isValid) {
+        exibirFeedbackModal('error', `Requisitos de senha não atendidos: ${avaliacao.errors.join(' ')}`);
+        return;
+      }
+
+      const roleMapeada =
+        cargo === 'Administrador'
+          ? 'admin'
+          : cargo === 'Atendente'
+          ? 'atendente'
+          : 'pintor';
+
+      const token = window.AdminAuth?.getToken();
+      if (!token) return;
+
+      try {
+        const url = `${window.APP_CONFIG.SUPABASE_FUNCTIONS_URL}/salvar-lead`;
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'apikey': window.APP_CONFIG.SUPABASE_ANON_KEY,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            action: 'create_user',
+            email,
+            password: pass,
+            nome,
+            role: roleMapeada,
+          }),
+        });
+
+        const res = await resp.json().catch(() => ({}));
+        if (resp.ok && res.success) {
+          exibirFeedbackModal('success', res.message || 'Operador cadastrado com sucesso!');
+          modalUserForm.reset();
+          setTimeout(() => {
+            mostrarSecaoModal('list');
+          }, 1000);
+        } else {
+          exibirFeedbackModal('error', res.error || res.message || 'Erro ao cadastrar operador.');
+        }
+      } catch (err) {
+        exibirFeedbackModal('error', 'Falha ao conectar com o servidor para criar o usuário.');
       }
     });
   }
 
   // ==========================================================================
-  // 4. BUSCA E PROCESSAMENTO DE LEADS
+  // 3. BUSCA E PROCESSAMENTO DE LEADS (COM JWT REAL - A3)
   // ==========================================================================
   async function carregarLeads() {
-    if (!estaAutenticado()) return;
+    const token = window.AdminAuth?.getToken();
+    if (!token) return;
 
     leadsCounter.textContent = 'Sincronizando com Supabase...';
     if (btnRefresh) btnRefresh.classList.add('loading');
@@ -633,18 +454,23 @@
 
     try {
       const url = `${window.APP_CONFIG.SUPABASE_FUNCTIONS_URL}/salvar-lead`;
-      const token = window.APP_CONFIG.SUPABASE_ANON_KEY || 'admin_session_active';
+      // A3: Envia JWT de autenticação real do Supabase Auth e remove headers bypass legados
       const resp = await fetch(url, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
-          'X-Admin-Session': 'true',
-          'apikey': token,
+          'apikey': window.APP_CONFIG.SUPABASE_ANON_KEY,
         },
       });
+
       if (resp.ok) {
         const data = await resp.json();
         remoteLeads = data.leads || [];
+      } else if (resp.status === 401) {
+        console.warn('[admin] Sessão expirada ou não autorizada ao carregar leads (401).');
+        await window.AdminAuth?.signOut();
+        await verificarAutenticacao();
+        return;
       }
     } catch (err) {
       console.warn('Não foi possível conectar ao endpoint remoto de leads:', err);
@@ -652,7 +478,7 @@
       if (btnRefresh) btnRefresh.classList.remove('loading');
     }
 
-    // Mesclar com leads em cache do localStorage (para contingência e sincronia instantânea)
+    // Mesclar com leads em cache do localStorage para visualização imediata
     let localLeads = [];
     try {
       localLeads = JSON.parse(localStorage.getItem('orcamento_local_leads') || '[]');
@@ -679,97 +505,75 @@
     renderizarTabela();
   }
 
-  /**
-   * Atualiza os cartões de indicadores (KPIs)
-   */
+  // ==========================================================================
+  // 4. ATUALIZAÇÃO DE KPIS E RENDERIZAÇÃO DA TABELA
+  // ==========================================================================
   function atualizarKpis(leads) {
     const total = leads.length;
-    if (kpiTotalLeads) kpiTotalLeads.textContent = total;
+    let faturamento = 0;
+    const servicosCont = {};
 
-    if (total === 0) {
-      if (kpiTotalFaturamento) kpiTotalFaturamento.textContent = 'R$ 0,00';
-      if (kpiTicketMedio) kpiTicketMedio.textContent = 'R$ 0,00';
-      if (kpiTopServico) kpiTopServico.textContent = 'Nenhum lead';
-      return;
-    }
-
-    const faturamento = leads.reduce((acc, lead) => acc + (Number(lead.valor_calculado) || 0), 0);
-    const media = faturamento / total;
-
-    if (kpiTotalFaturamento) {
-      kpiTotalFaturamento.textContent = faturamento.toLocaleString('pt-BR', {
-        style: 'currency',
-        currency: 'BRL',
-      });
-    }
-
-    if (kpiTicketMedio) {
-      kpiTicketMedio.textContent = media.toLocaleString('pt-BR', {
-        style: 'currency',
-        currency: 'BRL',
-      });
-    }
-
-    // Contagem do serviço mais solicitado
-    const servicoCount = {};
     leads.forEach((l) => {
-      const s = l.tipo_servico || 'outros';
-      servicoCount[s] = (servicoCount[s] || 0) + 1;
+      const v = parseFloat(l.valor_calculado || l.valor_final || 0);
+      if (!isNaN(v)) faturamento += v;
+
+      const serv = l.tipo_servico || 'Outro';
+      servicosCont[serv] = (servicosCont[serv] || 0) + 1;
     });
 
-    let topServico = '-';
-    let maxQtd = 0;
-    for (const [srv, qtd] of Object.entries(servicoCount)) {
-      if (qtd > maxQtd) {
-        maxQtd = qtd;
-        topServico =
-          srv === 'parede_lisa'
-            ? 'Parede Lisa'
-            : srv === 'parede_textura'
-            ? 'Textura'
-            : srv === 'teto'
-            ? 'Teto'
-            : srv;
+    const ticketMedio = total > 0 ? faturamento / total : 0;
+
+    let topServico = '—';
+    let maxCont = 0;
+    for (const [serv, count] of Object.entries(servicosCont)) {
+      if (count > maxCont) {
+        maxCont = count;
+        topServico = serv;
       }
     }
 
+    const mapaServicos = {
+      parede_lisa: 'Parede Lisa',
+      parede_textura: 'Textura',
+      teto: 'Teto',
+    };
+
+    if (kpiTotalLeads) kpiTotalLeads.textContent = total;
+    if (kpiTotalFaturamento) {
+      kpiTotalFaturamento.textContent = `R$ ${faturamento.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+    if (kpiTicketMedio) {
+      kpiTicketMedio.textContent = `R$ ${ticketMedio.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
     if (kpiTopServico) {
-      kpiTopServico.textContent = `${topServico} (${maxQtd})`;
+      kpiTopServico.textContent = mapaServicos[topServico] || topServico;
     }
   }
 
-  /**
-   * Renderiza a tabela aplicando busca e filtros
-   */
   function renderizarTabela() {
-    const busca = (searchInput && searchInput.value || '').toLowerCase().trim();
-    const filtro = filterService ? filterService.value : 'todos';
+    const termo = (searchInput?.value || '').toLowerCase().trim();
+    const filtro = filterService?.value || 'todos';
 
-    const leadsFiltrados = allLeads.filter((lead) => {
-      const matchBusca =
-        !busca ||
-        (lead.nome || '').toLowerCase().includes(busca) ||
-        (lead.telefone || '').toLowerCase().includes(busca);
+    const leadsFiltrados = allLeads.filter((l) => {
+      const matchTermo =
+        !termo ||
+        (l.nome && l.nome.toLowerCase().includes(termo)) ||
+        (l.telefone && l.telefone.includes(termo));
 
-      const matchFiltro =
-        filtro === 'todos' || (lead.tipo_servico || '').toLowerCase().includes(filtro);
-
-      return matchBusca && matchFiltro;
+      const matchFiltro = filtro === 'todos' || l.tipo_servico === filtro;
+      return matchTermo && matchFiltro;
     });
 
-    if (leadsCounter) {
-      leadsCounter.textContent = `${leadsFiltrados.length} ${leadsFiltrados.length === 1 ? 'registro' : 'registros'}`;
-    }
-
-    if (!leadsTbody) return;
-    leadsTbody.innerHTML = '';
+    leadsCounter.textContent = `${leadsFiltrados.length} orçamento(s) localizado(s)`;
 
     if (leadsFiltrados.length === 0) {
-      if (emptyState) emptyState.classList.remove('hidden');
+      leadsTbody.innerHTML = '';
+      emptyState.classList.remove('hidden');
       return;
     }
 
-    if (emptyState) emptyState.classList.add('hidden');
+    emptyState.classList.add('hidden');
+    leadsTbody.innerHTML = '';
 
     leadsFiltrados.forEach((lead) => {
       const tr = document.createElement('tr');
@@ -778,44 +582,37 @@
       const dataFormatada = dataObj.toLocaleDateString('pt-BR', {
         day: '2-digit',
         month: '2-digit',
-        year: '2-digit',
+        year: 'numeric',
       });
       const horaFormatada = dataObj.toLocaleTimeString('pt-BR', {
         hour: '2-digit',
         minute: '2-digit',
       });
 
-      const nomeServico =
-        lead.tipo_servico === 'parede_textura'
-          ? 'Textura'
-          : lead.tipo_servico === 'teto'
-          ? 'Teto'
-          : 'Parede Lisa';
+      let nomeServico = 'Parede Lisa';
+      let classeBadge = 'badge-parede-lisa';
 
-      const classeBadge =
-        lead.tipo_servico === 'parede_textura'
-          ? 'textura'
-          : lead.tipo_servico === 'teto'
-          ? 'teto'
-          : 'parede-lisa';
+      if (lead.tipo_servico === 'parede_textura') {
+        nomeServico = 'Textura';
+        classeBadge = 'badge-textura';
+      } else if (lead.tipo_servico === 'teto') {
+        nomeServico = 'Teto';
+        classeBadge = 'badge-teto';
+      }
 
-      const valorFormatado = Number(lead.valor_calculado || 0).toLocaleString('pt-BR', {
-        style: 'currency',
-        currency: 'BRL',
-      });
+      const valorNum = parseFloat(lead.valor_calculado || lead.valor_final || 0);
+      const valorFormatado = `R$ ${valorNum.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-      // Formatar link do WhatsApp (somente números)
-      const foneLimpo = (lead.telefone || '').replace(/\D/g, '');
-      const foneComPais = foneLimpo.startsWith('55') ? foneLimpo : `55${foneLimpo}`;
-      const msgPadrao = encodeURIComponent(
-        `Olá ${lead.nome}! Sou o Valdir Pintor. Vi sua cotação oficial no site para ${nomeServico} (${lead.quantidade_comodos} cômodos no valor de ${valorFormatado}). Podemos agendar a visita?`
+      const telLimpo = (lead.telefone || '').replace(/\D/g, '');
+      const msgWhats = encodeURIComponent(
+        `Olá ${lead.nome || 'Cliente'}, aqui é da equipe de atendimento do Valdir Pinturas sobre seu orçamento de ${nomeServico}!`
       );
-      const urlWhats = `https://wa.me/${foneComPais}?text=${msgPadrao}`;
+      const urlWhats = `https://wa.me/55${telLimpo}?text=${msgWhats}`;
 
       tr.innerHTML = `
         <td class="font-mono text-muted text-xs">
           <div>${dataFormatada}</div>
-          <div style="font-size: 0.72rem; color: #a1a1aa;">${horaFormatada}</div>
+          <div style="opacity: 0.7;">${horaFormatada}</div>
         </td>
         <td>
           <span class="client-name">${escapeHtml(lead.nome || 'Cliente')}</span>
@@ -872,6 +669,6 @@
   if (searchInput) searchInput.addEventListener('input', renderizarTabela);
   if (filterService) filterService.addEventListener('change', renderizarTabela);
 
-  // Inicialização: checa autenticação imediatamente
+  // Inicialização: checa autenticação imediatamente via Supabase Auth
   verificarAutenticacao();
 })();

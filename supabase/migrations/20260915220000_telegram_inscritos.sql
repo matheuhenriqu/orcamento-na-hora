@@ -14,11 +14,14 @@ COMMENT ON TABLE public.telegram_inscritos IS 'Chats e usuários do Telegram ins
 
 ALTER TABLE public.telegram_inscritos ENABLE ROW LEVEL SECURITY;
 
+REVOKE ALL ON public.telegram_inscritos FROM anon, authenticated;
+GRANT ALL ON public.telegram_inscritos TO service_role;
+
 DROP POLICY IF EXISTS "Acesso livre service role telegram" ON public.telegram_inscritos;
-CREATE POLICY "Acesso livre service role telegram" 
+DROP POLICY IF EXISTS "service_role only" ON public.telegram_inscritos;
+CREATE POLICY "service_role only" 
     ON public.telegram_inscritos 
     FOR ALL 
-    USING (true)
-    WITH CHECK (true);
+    USING (auth.role() = 'service_role') 
+    WITH CHECK (auth.role() = 'service_role');
 
-GRANT ALL ON TABLE public.telegram_inscritos TO anon, authenticated, service_role;

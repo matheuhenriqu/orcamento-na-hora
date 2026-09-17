@@ -35,6 +35,20 @@ async function responderTelegram(botToken: string, chatId: number | string, text
     console.error('[telegram-webhook] Falha de conexão com api.telegram.org:', err);
     return false;
   }
+/**
+ * Comparação em tempo constante para prevenir ataques de temporização
+ */
+function constantTimeEqual(a: string, b: string): boolean {
+  if (typeof a !== 'string' || typeof b !== 'string' || !a || !b) return false;
+  const enc = new TextEncoder();
+  const bufA = enc.encode(a);
+  const bufB = enc.encode(b);
+  if (bufA.byteLength !== bufB.byteLength) return false;
+  let diff = 0;
+  for (let i = 0; i < bufA.byteLength; i++) {
+    diff |= bufA[i] ^ bufB[i];
+  }
+  return diff === 0;
 }
 
 Deno.serve(async (req: Request) => {
@@ -52,9 +66,18 @@ Deno.serve(async (req: Request) => {
   const action = urlObj.searchParams.get('action');
 
   // ==========================================================================
-  // 2. REQUISIÇÕES GET: SETUP E DIAGNÓSTICO DO WEBHOOK
+  // 2. REQUISIÇÕES GET: SETUP E DIAGNÓSTICO DO WEBHOOK (A6: PROTEÇÃO ADMIN)
   // ==========================================================================
   if (req.method === 'GET') {
+    const adminSecret = Deno.env.get('ADMIN_DASHBOARD_SECRET') || '';
+    const adminKey = req.headers.get('x-admin-key') || '';
+    const authHeader = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '') || '';
+    const providedKey = adminKey || authHeader;
+
+    if (!adminSecret || !constantTimeEqual(providedKey, adminSecret)) {
+      return errorResponse('Acesso proibido. Autenticação administrativa necessária.', 403);
+    }
+
     if (!botToken) {
       return errorResponse('TELEGRAM_BOT_TOKEN não está configurado nas variáveis de ambiente.', 500);
     }
@@ -116,14 +139,17 @@ Deno.serve(async (req: Request) => {
     return errorResponse('Método não permitido. Utilize POST para o webhook ou GET para diagnóstico.', 405);
   }
 
-  // Validação opcional de segurança recomendada pelo Telegram: Secret Token
+  // A6: Exigir TELEGRAM_WEBHOOK_SECRET sempre (retorna 500 se ausente)
   const webhookSecret = Deno.env.get('TELEGRAM_WEBHOOK_SECRET');
-  if (webhookSecret) {
-    const receivedSecret = req.headers.get('x-telegram-bot-api-secret-token');
-    if (receivedSecret !== webhookSecret) {
-      console.warn('[telegram-webhook] Tentativa de acesso com secret token inválido ou ausente');
-      return errorResponse('Acesso não autorizado ao webhook', 401);
-    }
+  if (!webhookSecret) {
+    console.error('[telegram-webhook] TELEGRAM_WEBHOOK_SECRET não configurado.');
+    return errorResponse('Configuração de segurança do webhook incompleta no servidor.', 500);
+  }
+
+  const receivedSecret = req.headers.get('x-telegram-bot-api-secret-token') || '';
+  if (!constantTimeEqual(receivedSecret, webhookSecret)) {
+    console.warn('[telegram-webhook] Tentativa de acesso com secret token inválido ou ausente');
+    return errorResponse('Acesso não autorizado ao webhook.', 401);
   }
 
   try {
@@ -135,10 +161,19 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ ok: true, ignored: true });
     }
 
-    const chatId = message.chat.id;
+    // A6: Validar chat.id como inteiro numérico
+    const rawChatId = message.chat.id;
+    const chatId = Number(rawChatId);
+    if (!Number.isInteger(chatId) || chatId === 0) {
+      return jsonResponse({ ok: true, ignored: true });
+    }
+
     const username = message.from?.username || message.chat.username || '';
     const firstName = message.from?.first_name || message.chat.first_name || 'Profissional';
-    const text = (message.text || '').trim();
+    let text = String(message.text || '').trim();
+    if (text.length > 4096) {
+      text = text.slice(0, 4096);
+    }
 
     // Verificação de autorização do chat
     const authorizedChatId = Deno.env.get('TELEGRAM_CHAT_ID');

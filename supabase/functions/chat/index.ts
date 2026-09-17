@@ -387,22 +387,18 @@ async function executarSalvarLead(
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? Deno.env.get('SUPABASE_ANON_KEY');
 
-  // Resgate automático do histórico recente caso algum argumento venha ausente ou zerado
+  // Resgate automático de tipo_servico e cômodos caso algum argumento venha ausente ou zerado
   let tipoServico = args.tipo_servico;
   let comodos = Number(args.comodos || args.quantidade_comodos || 0);
-  let valorTotal = Number(args.valor_total || args.valor_calculado || 0);
 
-  // 1. Resgata do context explícito se disponível
+  // 1. Resgata do context explícito se disponível (apenas serviço e quantidade, NUNCA valor)
   if (contextUltimoOrcamento) {
     if (!tipoServico && contextUltimoOrcamento.tipo_servico) tipoServico = contextUltimoOrcamento.tipo_servico;
     if (comodos <= 0 && contextUltimoOrcamento.quantidade_comodos) comodos = Number(contextUltimoOrcamento.quantidade_comodos);
-    if (valorTotal <= 0 && (contextUltimoOrcamento.valor_calculado || contextUltimoOrcamento.valor_total)) {
-      valorTotal = Number(contextUltimoOrcamento.valor_calculado || contextUltimoOrcamento.valor_total);
-    }
   }
 
-  // 2. Resgata do histórico de mensagens (tool results e mensagens de assistente anteriores)
-  if ((!tipoServico || comodos <= 0 || valorTotal <= 0) && Array.isArray(historicoMensagens)) {
+  // 2. Resgata do histórico de mensagens se necessário
+  if ((!tipoServico || comodos <= 0) && Array.isArray(historicoMensagens)) {
     for (let i = historicoMensagens.length - 1; i >= 0; i--) {
       const m = historicoMensagens[i];
       if (m.role === 'tool' && m.name === 'calcular_orcamento' && m.content) {
@@ -410,9 +406,6 @@ async function executarSalvarLead(
           const calcData = JSON.parse(m.content);
           if (!tipoServico && calcData.tipo_servico) tipoServico = calcData.tipo_servico;
           if (comodos <= 0 && calcData.quantidade_comodos) comodos = Number(calcData.quantidade_comodos);
-          if (valorTotal <= 0 && (calcData.valor_final || calcData.valor_total)) {
-            valorTotal = Number(calcData.valor_final || calcData.valor_total);
-          }
         } catch (_) {}
       }
       if (m.tool_calls) {
@@ -426,7 +419,6 @@ async function executarSalvarLead(
           }
         }
       }
-      // Heurística em mensagens textuais anteriores do assistente com orçamentos
       if (m.role === 'assistant' && m.content) {
         if (!tipoServico) {
           if (/textura/i.test(m.content)) tipoServico = 'parede_textura';
@@ -437,25 +429,34 @@ async function executarSalvarLead(
           const comodosMatch = m.content.match(/(\d+)\s*cômodo/i);
           if (comodosMatch) comodos = parseInt(comodosMatch[1], 10);
         }
-        if (valorTotal <= 0) {
-          const valorMatch = m.content.match(/R\$\s*([\d.,]+)/i);
-          if (valorMatch) {
-            const parsedVal = parseFloat(valorMatch[1].replace('.', '').replace(',', '.'));
-            if (!isNaN(parsedVal) && parsedVal > 0) valorTotal = parsedVal;
-          }
-        }
       }
     }
   }
 
+  // A4: Normalização estrita do tipo de serviço e RECÁLCULO SERVER-SIDE INVIOLÁVEL
+  let tipoServicoFinal = 'parede_lisa';
+  const rawServico = String(tipoServico || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (rawServico.includes('textura')) tipoServicoFinal = 'parede_textura';
+  else if (rawServico.includes('teto')) tipoServicoFinal = 'teto';
+
+  const qtdComodos = Math.max(1, comodos || 1);
+  const TABELA: Record<string, number> = { parede_lisa: 120.0, parede_textura: 180.0, teto: 100.0 };
+  const precoUnitario = TABELA[tipoServicoFinal] || 120.0;
+  const subtotal = precoUnitario * qtdComodos;
+  const desconto = qtdComodos >= 5 ? subtotal * 0.10 : 0;
+  const temTaxaVisita = Boolean(args.taxa_visita);
+  const taxa = temTaxaVisita ? 30.0 : 0.0;
+  const valorOficial = Number((subtotal - desconto + taxa).toFixed(2));
+
   const payloadSanitizado = {
     nome: String(args.nome || 'Cliente').trim(),
     telefone: String(args.telefone || '').trim(),
-    tipo_servico: tipoServico || 'parede_lisa',
-    comodos: Math.max(1, comodos || 1),
-    quantidade_comodos: Math.max(1, comodos || 1),
-    valor_total: valorTotal > 0 ? valorTotal : 120.0,
-    valor_calculado: valorTotal > 0 ? valorTotal : 120.0,
+    tipo_servico: tipoServicoFinal,
+    comodos: qtdComodos,
+    quantidade_comodos: qtdComodos,
+    taxa_visita: temTaxaVisita,
+    valor_total: valorOficial,
+    valor_calculado: valorOficial,
   };
 
   // 1. Tentar invocar Edge Function salvar-lead se ambiente Supabase estiver configurado
@@ -610,7 +611,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // 2. Truncamento e sanitização de tamanho de mensagens (mitiga buffer overflow / estouro de tokens)
+    // 2. Truncamento e sanitização de tamanho de mensagens (A5: mitiga buffer overflow e role spoofing)
     const limitedMessages = messages.slice(-15);
     const groqMessages: ChatMessage[] = [
       { role: 'system', content: SYSTEM_PROMPT },
@@ -619,12 +620,11 @@ Deno.serve(async (req: Request) => {
         if (content.length > 1000) {
           content = content.slice(0, 1000) + '... (truncado por segurança)';
         }
+        // A5: Whitelist estrita de role: apenas 'assistant' ou 'user'. Dropar name/tool_call_id/tool_calls vindos do cliente
+        const role = m.role === 'assistant' ? 'assistant' : 'user';
         return {
-          role: m.role,
+          role,
           content,
-          name: m.name,
-          tool_call_id: m.tool_call_id,
-          tool_calls: m.tool_calls,
         };
       }),
     ];

@@ -259,11 +259,7 @@ async function buildRelatorioDocx() {
               new Paragraph({
                 children: [
                   createLink('https://orcamento-na-hora.pages.dev/admin.html', 'https://orcamento-na-hora.pages.dev/admin.html'),
-                  new TextRun({ text: ' (Credenciais: Usuário ', color: COLOR.MUTED_GRAY, size: 18, font: 'Segoe UI' }),
-                  new TextRun({ text: 'admin', bold: true, color: COLOR.CORPORATE_BLUE, size: 18, font: 'Segoe UI' }),
-                  new TextRun({ text: ' | Senha ', color: COLOR.MUTED_GRAY, size: 18, font: 'Segoe UI' }),
-                  new TextRun({ text: 'admin', bold: true, color: COLOR.CORPORATE_BLUE, size: 18, font: 'Segoe UI' }),
-                  new TextRun({ text: ')', color: COLOR.MUTED_GRAY, size: 18, font: 'Segoe UI' }),
+                  new TextRun({ text: ' (Acesso restrito autenticado via Supabase Auth RBAC)', color: COLOR.MUTED_GRAY, size: 18, font: 'Segoe UI' }),
                 ],
               }),
             ],
@@ -633,7 +629,7 @@ async function buildRelatorioDocx() {
           ),
           createBullet(
             'Passo 3 (Painel Admin)',
-            'Acesse https://orcamento-na-hora.pages.dev/admin.html. Na tela de login, insira usuário "admin" e senha "admin". Verifique a consolidação dos KPIs em tempo real (Faturamento, Ticket Médio e Total de Leads) e acione o botão com link direto para o WhatsApp.'
+            'Acesse https://orcamento-na-hora.pages.dev/admin.html. Na tela de login, autentique-se com seu e-mail e senha corporativa via Supabase Auth. Verifique a consolidação dos KPIs em tempo real (Faturamento, Ticket Médio e Total de Leads) e acione o botão com link direto para o WhatsApp.'
           ),
 
           new Paragraph({ spacing: { before: 180, after: 60 } }),
